@@ -117,14 +117,19 @@ def test_safe_ranges_contain_the_defaults_and_have_valid_ends(number):
     for i in range(t.n_params):
         low, high = t.safe_ranges[i]
         assert low <= t.default_params[i] <= high
-        for value in (low, high, (low + t.default_params[i]) / 2, (high + t.default_params[i]) / 2):
+        values = [t.default_params[i]] + [v for v in (low, high) if np.isfinite(v)]
+        values += [(v + t.default_params[i]) / 2 for v in (low, high) if np.isfinite(v)]
+        for end, sign in ((low, -1.0), (high, 1.0)):  # no limit: far values are valid
+            if np.isinf(end):
+                values += [t.default_params[i] + sign * far for far in (10.0, 100.0, 1e3)]
+        for value in values:
             p = t.default_params.copy()
             p[i] = value
             assert check_prototile(number, p).valid, (i, value)
         # a finite end is a validity limit: the offset is rounded down to a multiple of 1e-6, so a critical value
         # at which the prototile is invalid (or invalid just beyond it) lies within 1e-6 beyond the end
         for end, sign in ((low, -1.0), (high, 1.0)):
-            if abs(end - t.default_params[i]) < 4.99:
+            if np.isfinite(end):
                 beyond = [r for r in critical_values(t, i) if 0 < sign * (r - end) <= 1.0001e-6]
                 assert beyond, (i, end)
                 invalid = []
@@ -137,9 +142,7 @@ def test_safe_ranges_contain_the_defaults_and_have_valid_ends(number):
 
 
 def test_many_types_have_finite_ends():
-    finite = [
-        n for n in PARAMETRIC if np.any(np.abs(get_type(n).safe_ranges - get_type(n).default_params[:, None]) < 4.99)
-    ]
+    finite = [n for n in PARAMETRIC if np.any(np.isfinite(get_type(n).safe_ranges))]
     assert len(finite) >= 20
 
 
@@ -189,8 +192,18 @@ def test_no_invalid_value_inside_a_safe_range(number):
     for i in range(t.n_params):
         low, high = t.safe_ranges[i]
         values = [r for r in critical_values(t, i) if low <= r <= high]
-        values += rng.uniform(low, high, 100).tolist()
+        span = (max(low, t.default_params[i] - 50), min(high, t.default_params[i] + 50))
+        values += rng.uniform(*span, 100).tolist()
         for value in values:
             p = t.default_params.copy()
             p[i] = value
             assert check_prototile(number, p).valid, (i, value)
+
+
+def test_number_of_infinite_ends():
+    ends = np.concatenate([get_type(n).safe_ranges.ravel() for n in tiling_types()])
+    assert len(ends) == 256
+    assert np.isinf(ends).sum() == 138
+    assert np.all(np.isfinite(ends) | (np.abs(ends) == np.inf))
+    low = np.concatenate([get_type(n).safe_ranges[:, 0] for n in tiling_types()])
+    assert not np.any(low == np.inf)

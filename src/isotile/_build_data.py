@@ -38,7 +38,7 @@ The adjacency tables are computed by shared-vertex counting on a patch of tiles.
 found per parameter, with the other parameters at their defaults, from the real roots of the orientation
 determinants of the prototile vertices (see ``critical_values``): the validity of the straight prototile is
 constant between consecutive roots. The range ends at the first root, going outward from the default, where the
-prototile is invalid at the root or just beyond it, or at a distance of 5 from the default. The distance is
+prototile is invalid at the root or just beyond it; if there is none the end is infinite. The distance is
 rounded down to a multiple of 1e-6 (and kept at least 1e-9 inside).
 
 The file is written deterministically (arrays sorted by key, fixed dtypes, uncompressed, fixed time stamps), and
@@ -69,8 +69,8 @@ NOTICE = (
     "See LICENSE-tactile in this directory."
 )
 PATCH_RADIUS = 5  # patch of (2R + 1)^2 cells around the origin
-SCAN_LIMIT = 5.0
 RANGE_GRID = 1e-6
+_COEFFICIENT_NOISE = 1e-9  # the type data has 12 digits: smaller polynomial coefficients are rounding noise
 FIXED_TIME = (1980, 1, 1, 0, 0, 0)
 
 
@@ -135,11 +135,11 @@ def critical_values(tiling_type: TilingType, index: int) -> NDArray[np.float64]:
     roots: list[float] = []
 
     def add_linear(c0: float, c1: float) -> None:
-        if abs(c1) > 1e-12:
+        if abs(c1) > _COEFFICIENT_NOISE:
             roots.append(-c0 / c1)
 
     def add_quadratic(c0: float, c1: float, c2: float) -> None:
-        if abs(c2) < 1e-12:
+        if abs(c2) < _COEFFICIENT_NOISE:
             add_linear(c0, c1)
             return
         disc = c1 * c1 - 4.0 * c2 * c0
@@ -180,16 +180,18 @@ def safe_ranges(tiling_type: TilingType) -> NDArray[np.float64]:
         roots = critical_values(tiling_type, index)
         for side, sign in enumerate((-1.0, 1.0)):
             distances = np.sort(sign * (roots[sign * (roots - default) > 1e-9] - default))
-            distances = distances[distances <= SCAN_LIMIT]
-            bounds = [*distances.tolist(), SCAN_LIMIT]
+            # validity is constant between consecutive roots and beyond the last one
+            bounds = [*distances.tolist(), (distances[-1] if len(distances) else 0.0) + 1.0]
             limit = None  # distance of the first invalid value
             for k, distance in enumerate(bounds[:-1]):
                 middle = (distance + bounds[k + 1]) / 2.0
                 if not valid(index, default + sign * distance) or not valid(index, default + sign * middle):
                     limit = distance
                     break
+            if limit is None and not valid(index, default + sign * bounds[-1]):
+                limit = bounds[-1]
             if limit is None:
-                out[index, side] = default + sign * SCAN_LIMIT
+                out[index, side] = sign * np.inf
             else:
                 steps = max(math.floor((limit - 1e-9) / RANGE_GRID), 0)
                 out[index, side] = default + sign * (steps * RANGE_GRID)
@@ -213,6 +215,8 @@ def write_arrays(path: Path, arrays: dict[str, NDArray[np.generic]]) -> None:
             info = zipfile.ZipInfo(f"{key}.npy", date_time=FIXED_TIME)
             info.compress_type = zipfile.ZIP_STORED
             info.external_attr = 0o644 << 16
+            # The members are stored uncompressed on purpose: the bytes then do not depend on the zlib build, and
+            # the file stays 390 KB instead of 173 KB.
             with archive.open(info, "w", force_zip64=True) as f:
                 np.save(f, np.require(arrays[key], requirements="C"), allow_pickle=False)
 

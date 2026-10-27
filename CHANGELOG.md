@@ -17,4 +17,5 @@ All notable changes to isotile are documented here. The format follows
   `geometric_adjacency` for arbitrary polygons.
 - `check_prototile` reports whether a parameter set gives a valid prototile and which edges are at fault; the
   constructor raises `ValueError` for an invalid prototile. `TilingType.safe_ranges` holds per parameter the
-  interval around the default in which the prototile stays valid while the other parameters keep their defaults.
+  interval around the default in which the prototile stays valid while the other parameters keep their defaults
+  (an infinite end means no limit).
