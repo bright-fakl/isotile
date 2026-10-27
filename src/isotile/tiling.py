@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from .adjacency import AdjacencyKind, lattice_adjacency
+from .curves import EdgeInfo, check_curves, edge_infos, native_edge_transforms, normalize_curves, outline
 from .prototile import check_prototile, inscribed_circle, polygon_area, polygon_centroid
 from .types import TilingType, get_type
 
@@ -22,17 +25,6 @@ Array = NDArray[np.float64]
 IntArray = NDArray[np.int64]
 
 SQUARE, HEXAGON, TRIANGLE, QUADRILATERAL = 76, 20, 84, 46  # types of the named constructors
-
-# The four edge orientation matrices (identity, rotate, flip, rotate + flip), index 2 * flip + rotate.
-_ORIENTS = np.array(
-    [
-        [[1, 0, 0], [0, 1, 0]],
-        [[-1, 0, 1], [0, -1, 0]],
-        [[-1, 0, 1], [0, 1, 0]],
-        [[1, 0, 0], [0, -1, 0]],
-    ],
-    dtype=float,
-)
 
 
 def _homogeneous(m: Array) -> Array:
@@ -62,6 +54,14 @@ class IsohedralTiling:
     parameters : array-like, optional
         ``n_params`` values; the type's defaults when omitted. Any finite values for which the straight prototile
         is a valid simple polygon are accepted (see [`check_prototile`][isotile.check_prototile]).
+    edge_curves : mapping of int to (m, 2) array-like, optional
+        Curves for the edge shape ids (`TilingType.edge_shape_ids`): control points on the canonical edge, from
+        ``(0, 0)`` to ``(1, 0)``. Every edge with the shape id gets the curve. The symmetry of the shape is
+        enforced (see [`enforce_symmetry`][isotile.enforce_symmetry]). Ids that are not given stay straight; an id
+        of an ``I`` edge is an error.
+    edge_curve_modes : mapping of int to str, optional
+        ``"spline"`` (default) or ``"linear"`` for the shape ids in ``edge_curves``, see
+        [`interpolate`][isotile.interpolate].
     frame : (2, 3) array-like, optional
         Affine map from the type's native coordinates to world coordinates, applied to the vertices, translation
         vectors, aspects and edges. Identity when omitted.
@@ -74,19 +74,30 @@ class IsohedralTiling:
     Raises
     ------
     ValueError
-        If the type, the number of parameters or the frame is invalid, or if the prototile is not valid. The
-        parameter setter keeps the previous state in that case.
+        If the type, the number of parameters or the frame is invalid, if an edge curve is malformed (an id that
+        is not a shape id or belongs to an ``I`` edge, points that do not run from ``(0, 0)`` to ``(1, 0)``), or
+        if the prototile or its outline with the curves is not valid (see
+        [`check_prototile`][isotile.check_prototile]). The parameter setter keeps the previous state in that case.
     """
 
     _vertices: Array
     _aspects: Array
     _translations: Array
     _edges: Array
+    _outline: Array
+    _outline_starts: IntArray
 
     def __init__(
-        self, tiling_type: int | TilingType, parameters: ArrayLike | None = None, *, frame: ArrayLike | None = None
+        self,
+        tiling_type: int | TilingType,
+        parameters: ArrayLike | None = None,
+        *,
+        edge_curves: Mapping[int, ArrayLike] | None = None,
+        edge_curve_modes: Mapping[int, str] | None = None,
+        frame: ArrayLike | None = None,
     ) -> None:
         self.type = tiling_type if isinstance(tiling_type, TilingType) else get_type(tiling_type)
+        self._curves = normalize_curves(self.type, edge_curves, edge_curve_modes)
         f = np.asarray(np.eye(3)[:2] if frame is None else frame, dtype=float)
         if f.shape != (2, 3) or not np.all(np.isfinite(f)):
             raise ValueError(f"frame must be a finite (2, 3) array, got shape {f.shape}")
@@ -133,6 +144,26 @@ class IsohedralTiling:
         default = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
         return _fit(cls, QUADRILATERAL, default if vertices is None else vertices)
 
+    @classmethod
+    def from_preset(cls, name: str, **overrides: Any) -> IsohedralTiling:
+        """A tiling from a named preset, see [`list_presets`][isotile.list_presets].
+
+        Parameters
+        ----------
+        name : str
+            Preset name.
+        **overrides
+            Replace arguments of the preset (``parameters``, ``edge_curves``, ``edge_curve_modes``, ``frame``).
+
+        Raises
+        ------
+        ValueError
+            If the name is unknown or the result is not a valid tiling.
+        """
+        from .presets import preset_arguments
+
+        return cls(**{**preset_arguments(name), **overrides})
+
     # -- frame -----------------------------------------------------------------------------------
 
     @property
@@ -141,8 +172,14 @@ class IsohedralTiling:
         return self._frame[:2].copy()
 
     def with_frame(self, frame: ArrayLike) -> IsohedralTiling:
-        """The same type and parameters with the frame replaced."""
-        return IsohedralTiling(self.type, self._parameters, frame=frame)
+        """The same type, parameters and edge curves with the frame replaced."""
+        return IsohedralTiling(
+            self.type,
+            self._parameters,
+            edge_curves=self.edge_curves,
+            edge_curve_modes=self.edge_curve_modes,
+            frame=frame,
+        )
 
     def _after(self, m: Array) -> IsohedralTiling:
         return self.with_frame((_homogeneous(m) @ self._frame)[:2])
@@ -167,6 +204,8 @@ class IsohedralTiling:
     def parameters(self, value: ArrayLike) -> None:
         p = np.asarray(value, dtype=float)
         report = check_prototile(self.type, p)
+        if report.valid and self._curves:
+            report = check_curves(self.type, p, self._curves)
         if not report.valid:
             raise ValueError(f"IH{self.type.number}: invalid prototile for parameters {p.tolist()}: {report.message}")
         self._set(p)
@@ -176,17 +215,12 @@ class IsohedralTiling:
         t, f = self.type, self._frame
         p1 = np.append(p, 1.0)
         v = t.vertex_coeffs @ p1
-        w = np.roll(v, -1, axis=0)
-        seg = np.zeros((t.n_vertices, 3, 3))  # unit edge (0,0)-(1,0) -> v[i]-v[i+1]
-        seg[:, 0] = np.stack([w[:, 0] - v[:, 0], v[:, 1] - w[:, 1], v[:, 0]], axis=1)
-        seg[:, 1] = np.stack([w[:, 1] - v[:, 1], w[:, 0] - v[:, 0], v[:, 1]], axis=1)
-        seg[:, 2, 2] = 1.0
-        orient = _homogeneous(_ORIENTS[2 * t.edge_orientations[:, 0] + t.edge_orientations[:, 1]])
         self._parameters = p
         self._vertices = v @ f[:2, :2].T + f[:2, 2]
         self._aspects = (f @ _homogeneous(t.aspect_coeffs @ p1) @ np.linalg.inv(f))[:, :2]
         self._translations = (t.translation_coeffs @ p1) @ f[:2, :2].T
-        self._edges = (f @ seg @ orient)[:, :2]
+        self._edges = (f @ _homogeneous(native_edge_transforms(t, p)))[:, :2]
+        self._outline, self._outline_starts = outline(t, self._edges, self._curves)
 
     @property
     def vertices(self) -> Array:
@@ -235,6 +269,37 @@ class IsohedralTiling:
         return self.type.edge_shapes
 
     @property
+    def edge_curves(self) -> dict[int, Array]:
+        """Control points of the curve of each shape id that has one, with the symmetry of its shape enforced."""
+        return {k: np.array(c.points) for k, c in self._curves.items()}
+
+    @property
+    def edge_curve_modes(self) -> dict[int, str]:
+        """Interpolation mode (``"spline"`` or ``"linear"``) of each shape id in `edge_curves`."""
+        return {k: c.mode for k, c in self._curves.items()}
+
+    @property
+    def edges(self) -> tuple[EdgeInfo, ...]:
+        """The edges of the prototile in order, with shape id, shape, reversal and curve."""
+        return edge_infos(self.type, self._curves)
+
+    def with_edge_curves(
+        self,
+        edge_curves: Mapping[int, ArrayLike] | None,
+        edge_curve_modes: Mapping[int, str] | None = None,
+    ) -> IsohedralTiling:
+        """The same type, parameters and frame with the edge curves replaced (``None`` removes all curves).
+
+        Raises
+        ------
+        ValueError
+            As the constructor, if the curves are malformed or the outline is not valid.
+        """
+        return IsohedralTiling(
+            self.type, self._parameters, edge_curves=edge_curves, edge_curve_modes=edge_curve_modes, frame=self.frame
+        )
+
+    @property
     def area(self) -> float:
         """Area of the straight prototile."""
         return abs(polygon_area(self._vertices))
@@ -244,14 +309,55 @@ class IsohedralTiling:
         """Area centroid of the straight prototile."""
         return polygon_centroid(self._vertices)
 
-    def prototile(self, normalized: bool = False) -> Array:
-        """(n_vertices, 2) closed outline of the straight prototile, without the repeated first point.
+    def prototile(self, normalized: bool = False, *, curved: bool = True, n_points: int | None = None) -> Array:
+        """(M, 2) closed outline of the prototile in world coordinates, without the repeated first point.
 
-        With ``normalized`` the outline is translated so that its centroid is at the origin and scaled to unit area.
+        The outline starts at vertex 0 and runs along the edges in order; each edge with a curve contributes its
+        samples, the others only their start vertex. Without curves (or with ``curved=False``) the outline is
+        `vertices`.
+
+        With ``normalized`` the outline is translated so that the centroid of the straight prototile is at the
+        origin and scaled to unit area of the straight prototile (the curved prototile has the same area).
+
+        Parameters
+        ----------
+        normalized : bool, default False
+        curved : bool, default True
+            Replace the edges by their curves.
+        n_points : int, optional
+            Samples per spline edge, see [`interpolate`][isotile.interpolate]. It only sets how finely the outline is
+            drawn; validity does not depend on it.
         """
+        points = self._curved_outline(n_points)[0] if curved else self._vertices
         if not normalized:
-            return self.vertices
-        return (self._vertices - self.centroid) / math.sqrt(self.area)
+            return points.copy()
+        return (points - self.centroid) / math.sqrt(self.area)
+
+    def _curved_outline(self, n_points: int | None) -> tuple[Array, IntArray]:
+        if n_points is None or not self._curves:
+            return self._outline, self._outline_starts
+        return outline(self.type, self._edges, self._curves, n_points)
+
+    def edge_outlines(self, curved: bool = True, *, n_points: int | None = None) -> list[Array]:
+        """One polyline per edge in world coordinates, from vertex ``i`` to vertex ``i + 1``.
+
+        Parameters
+        ----------
+        curved : bool, default True
+            Use the curves; otherwise every edge is the segment between its vertices.
+        n_points : int, optional
+            Samples per spline edge, see [`interpolate`][isotile.interpolate].
+
+        Returns
+        -------
+        list of (k_i, 2) ndarray
+            Edge ``i`` has at least 2 points (its end vertices); consecutive edges share their end points.
+        """
+        if not curved:
+            return [np.stack([a, b]) for a, b in zip(self._vertices, np.roll(self._vertices, -1, axis=0), strict=True)]
+        points, starts = self._curved_outline(n_points)
+        closed = np.vstack([points, points[:1]])
+        return [closed[starts[i] : starts[i + 1] + 1].copy() for i in range(self.type.n_vertices)]
 
     @property
     def inscribed_radius(self) -> float:
@@ -273,6 +379,43 @@ class IsohedralTiling:
     def describe(self) -> str:
         """Human-readable summary of the type with the current parameter values, see [`TilingType.describe`][isotile.TilingType.describe]."""
         return self.type.describe(self._parameters)
+
+    # -- serialization ---------------------------------------------------------------------------
+
+    def to_dict(self) -> dict[str, Any]:
+        """The tiling as a JSON-compatible dict: type, parameters, edge curves and modes, frame.
+
+        The format is described in [`isotile.io`][isotile.io].
+        """
+        from .io import to_dict
+
+        return to_dict(self)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> IsohedralTiling:
+        """The tiling that a dict from [`to_dict`][isotile.IsohedralTiling.to_dict] describes.
+
+        Raises
+        ------
+        ValueError
+            If the data are not a valid version 1.x tiling.
+        """
+        from .io import from_dict
+
+        return from_dict(data)
+
+    def save(self, path: str | Path) -> None:
+        """Write the tiling to a JSON file, see [`isotile.io.save`][isotile.io.save]."""
+        from .io import save
+
+        save(self, path)
+
+    @classmethod
+    def load(cls, path: str | Path) -> IsohedralTiling:
+        """Read a tiling from a JSON file written by [`save`][isotile.IsohedralTiling.save]."""
+        from .io import load
+
+        return load(path)
 
     # -- tile generation -------------------------------------------------------------------------
 
@@ -623,8 +766,21 @@ class TileSet:
         centroids: Array = self.transforms[:, :, :2] @ self.tiling.centroid + self.transforms[:, :, 2]
         return centroids
 
-    def polygons(self) -> list[Any]:
-        """The tiles as a list of shapely polygons (needs the ``shapely`` extra).
+    def outlines(self, curved: bool = True, *, n_points: int | None = None) -> Array:
+        """(n, M, 2) tile outlines in world coordinates: the prototile outline mapped onto each tile.
+
+        With ``curved`` (the default) the edges are replaced by their curves, see
+        [`IsohedralTiling.prototile`][isotile.IsohedralTiling.prototile]; otherwise the outlines are
+        [`vertices`][isotile.TileSet.vertices]. Tiles that share an edge share the points of its curve.
+        """
+        base = self.tiling.prototile(curved=curved, n_points=n_points)
+        outlines: Array = np.einsum("nij,vj->nvi", self.transforms[:, :, :2], base) + self.transforms[:, None, :, 2]
+        return outlines
+
+    def polygons(self, curved: bool = True, *, n_points: int | None = None) -> list[Any]:
+        """The tiles as a list of shapely polygons (needs the ``shapely`` extra), with curved edges by default.
+
+        The polygons are the [`outlines`][isotile.TileSet.outlines] of the tiles.
 
         Raises
         ------
@@ -635,7 +791,7 @@ class TileSet:
             import shapely
         except ImportError:
             raise ImportError("TileSet.polygons needs shapely: pip install isotile[shapely]") from None
-        return list(shapely.polygons(self.vertices()))
+        return list(shapely.polygons(self.outlines(curved, n_points=n_points)))
 
     def colors(self) -> IntArray:
         """(n,) color index of each tile from the type's coloring table."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,7 +25,9 @@ class PrototileReport:
     Attributes
     ----------
     valid : bool
-        True if the straight prototile is a simple polygon with nonzero edge lengths and area.
+        True if the straight prototile is a simple polygon with nonzero edge lengths and area and, when edge curves
+        are checked, its outline with the curves is a simple closed curve with positive area whose non-consecutive parts are at least
+        ``1e-6`` times its diameter apart.
     bad_edges : tuple of int
         Sorted indices of the edges at fault (edge ``i`` joins vertex ``i`` to vertex ``i + 1``): zero-length edges,
         edges of every pair that crosses or touches without being neighbors, and neighboring edges that fold
@@ -104,23 +107,47 @@ def check_polygon(vertices: NDArray[np.float64]) -> PrototileReport:
     return PrototileReport(False, tuple(sorted(bad)), "; ".join(problems))
 
 
-def check_prototile(tiling_type: int | TilingType, parameters: ArrayLike | None = None) -> PrototileReport:
-    """Report whether the straight prototile of a type at the given parameters is a valid simple polygon.
+def check_prototile(
+    tiling_type: int | TilingType,
+    parameters: ArrayLike | None = None,
+    *,
+    edge_curves: Mapping[int, ArrayLike] | None = None,
+    edge_curve_modes: Mapping[int, str] | None = None,
+) -> PrototileReport:
+    """Report whether the prototile of a type at the given parameters, and with edge curves, is valid.
 
-    This is the test the [`IsohedralTiling`][isotile.IsohedralTiling] constructor applies; it builds no tiling, so an editor can
-    call it for every intermediate state. The prototile is checked in the type's native coordinates (a frame does
-    not change validity).
+    The straight prototile is valid when it is a simple polygon with nonzero edge lengths and area. With
+    ``edge_curves`` the outline with the edges replaced by their curves must in addition be a simple closed curve
+    with positive area, and parts of it that are not directly consecutive must be at least ``1e-6`` times the
+    diameter of the outline apart (the larger side of its bounding box); touching or nearly touching curves are
+    invalid. The edge shapes make the copies fit along the shared edges, so this is the complete condition. The
+    test is exact for the curve (a spline is tested as its cubic pieces, see [`interpolate`][isotile.interpolate]),
+    so it does not depend on the number of samples used to draw the outline. In the report of a curved outline,
+    ``bad_edges`` are the edges whose curves cross, touch, come closer than the clearance, fold back (turn by 180
+    degrees or more) or have zero length.
+
+    This is the test the [`IsohedralTiling`][isotile.IsohedralTiling] constructor applies; it builds no tiling, so an
+    editor can call it for every intermediate state. The prototile is checked in the type's native coordinates (a
+    frame does not change validity).
 
     Parameters
     ----------
     tiling_type : int or TilingType
     parameters : array-like, optional
         ``n_params`` values; the defaults when omitted.
+    edge_curves : mapping of int to (m, 2) array-like, optional
+        Curve control points for edge shape ids, as in [`IsohedralTiling`][isotile.IsohedralTiling]. The symmetry
+        of the shape is enforced before the test.
+    edge_curve_modes : mapping of int to str, optional
+        ``"spline"`` (default) or ``"linear"`` per shape id.
 
     Raises
     ------
     ValueError
-        If the type number is invalid or the number of parameters is wrong.
+        If the type number is invalid, the number of parameters is wrong, or the curves are malformed (a shape id
+        that does not exist or is an ``I`` edge, a mode without a curve, points that are not a finite array of
+        shape ``(m, 2)`` or do not run from ``(0, 0)`` to ``(1, 0)``). Curves that are well formed but make the
+        outline invalid are reported, not raised.
     """
     t = tiling_type if isinstance(tiling_type, TilingType) else get_type(tiling_type)
     p = t.default_params if parameters is None else np.asarray(parameters, dtype=float)
@@ -128,7 +155,13 @@ def check_prototile(tiling_type: int | TilingType, parameters: ArrayLike | None 
         raise ValueError(f"IH{t.number} takes {t.n_params} parameters, got shape {p.shape}")
     if not np.all(np.isfinite(p)):
         return PrototileReport(False, tuple(range(t.n_vertices)), "parameters must be finite")
-    return check_polygon(t.vertex_coeffs @ np.append(p, 1.0))
+    report = check_polygon(t.vertex_coeffs @ np.append(p, 1.0))
+    if edge_curves is None and edge_curve_modes is None:
+        return report
+    from .curves import check_curves, normalize_curves
+
+    curves = normalize_curves(t, edge_curves, edge_curve_modes)
+    return check_curves(t, p, curves) if report.valid and curves else report
 
 
 def _signed_distance(polygon: NDArray[np.float64], points: NDArray[np.float64]) -> NDArray[np.float64]:

@@ -89,9 +89,9 @@ aspect)` builds the tiles of given cells and aspects directly.
 
 ## The straight prototile and edge shapes
 
-isotile works with the straight prototile: the polygon through the vertices of the type, with straight edges.
-`IsohedralTiling.vertices`, `prototile()` and `TileSet.vertices()` are this polygon, and so is the polygon that
-validity (`check_prototile`) and the area are measured on.
+The straight prototile is the polygon through the vertices of the type, with straight edges. `IsohedralTiling.vertices`,
+`prototile(curved=False)` and `TileSet.vertices()` are this polygon, and so is the polygon that validity
+(`check_prototile`), the area, the centroid and the inscribed radius refer to.
 
 The edges of the prototile can be replaced by curves without breaking the tiling, as long as the curves obey the
 constraint of the edge shape. Each edge has one of four shapes (`TilingType.edge_shapes`):
@@ -107,6 +107,16 @@ Edges that belong together share a shape id (`TilingType.edge_shape_ids`): the e
 possibly traversed in the opposite direction (`IsohedralTiling.edge_reversed`). `IsohedralTiling.edge_transforms` maps
 the canonical edge from `(0, 0)` to `(1, 0)` onto each edge of the prototile (in world coordinates), so a curve defined
 on the canonical edge can be placed on the edge.
+
+<figure markdown="span">
+  ![Two straight prototiles, IH28 (a pentagon) and IH13 (a hexagon). Each edge is colored by its shape id and labeled with the id and the shape, for example id 0: S. A small arrow next to each edge shows the direction of the canonical edge.](assets/figures/concepts-edges-light.svg#only-light)
+  ![Two straight prototiles, IH28 (a pentagon) and IH13 (a hexagon). Each edge is colored by its shape id and labeled with the id and the shape, for example id 0: S. A small arrow next to each edge shows the direction of the canonical edge.](assets/figures/concepts-edges-dark.svg#only-dark)
+  <figcaption>The edges of IH28 (shapes S, J, J with ids 0, 1, 2) and IH13 (U, S, S). The arrows point from <code>(0, 0)</code> to <code>(1, 0)</code> of the canonical edge; against the order of the vertices, the edge is reversed.</figcaption>
+</figure>
+
+`IsohedralTiling(number, edge_curves=...)` replaces the edges by curves, and `prototile()` and `TileSet.outlines()` then
+return the curved outlines. The [Edge curves](curves.md) page describes the curves, their symmetry, sampling and
+validity.
 
 ## Frames
 

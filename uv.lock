@@ -1099,8 +1099,14 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "shapely", version = "2.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "shapely", version = "2.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+plot = [
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 shapely = [
     { name = "shapely", version = "2.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1110,6 +1116,8 @@ shapely = [
 [package.dev-dependencies]
 dev = [
     { name = "hatchling" },
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "mypy" },
     { name = "pre-commit", version = "4.6.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pre-commit", version = "4.7.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -1138,6 +1146,8 @@ tactile = [
 
 [package.metadata]
 requires-dist = [
+    { name = "matplotlib", marker = "extra == 'all'", specifier = ">=3.7" },
+    { name = "matplotlib", marker = "extra == 'plot'", specifier = ">=3.7" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "scipy", specifier = ">=1.11" },
     { name = "shapely", marker = "extra == 'all'", specifier = ">=2.0" },
@@ -1148,6 +1158,7 @@ provides-extras = ["shapely", "plot", "all"]
 [package.metadata.requires-dev]
 dev = [
     { name = "hatchling" },
+    { name = "matplotlib", specifier = ">=3.7" },
     { name = "mypy", specifier = ">=1.10" },
     { name = "pre-commit", specifier = ">=2.20.0" },
     { name = "pytest", specifier = ">=7.2.0" },
