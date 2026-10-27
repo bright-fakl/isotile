@@ -5,6 +5,23 @@ All notable changes to isotile are documented here. The format follows
 
 ## [Unreleased]
 
+### Edge curves
+
+- `IsohedralTiling(..., edge_curves=, edge_curve_modes=)`: curves on the canonical edge per edge shape id, with
+  `edge_curves`, `edge_curve_modes`, `edges` (`EdgeInfo`), `with_edge_curves`, `prototile(curved=True, n_points=)`
+  and `edge_outlines()`; `TileSet.outlines()` and `TileSet.polygons(curved=True)`.
+- `EdgeShape`, `enforce_symmetry` (idempotent projection by index onto the `U` and `S` constraints), `is_symmetric`
+  and `interpolate` (natural cubic spline on the chord-length parameter, or the control points).
+- Validity of curves: the outline must be a simple closed curve with positive area. `check_prototile` takes
+  `edge_curves` and `edge_curve_modes`; the constructor and the `parameters` setter raise `ValueError` for an invalid
+  outline and keep the previous state.
+- Tiling presets (`list_presets`, `IsohedralTiling.from_preset`) and edge curve presets (`list_edge_curve_presets`,
+  `edge_curve_preset`, `edge_curves_from_preset`).
+- `IsohedralTiling.to_dict`, `from_dict`, `save` and `load` (format version 1.1, with edge curve modes and the frame;
+  version 1.0 is read) in `isotile.io`.
+- `isotile.plot.plot_prototile` and `plot_tiles` (extra `plot`, matplotlib).
+- Page Edge curves, API pages, and figures of the edge shapes and curved tilings.
+
 ### Documentation
 
 - Documentation site built with mkdocs-material and mkdocstrings (home, quickstart, concepts, adjacency, API

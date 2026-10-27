@@ -13,12 +13,16 @@ nav:
   - Home: index.md
   - Quickstart: quickstart.md
   - Concepts: concepts.md
+  - Edge curves: curves.md
   - Adjacency: adjacency.md
   - API reference:
       - Overview: api/index.md
       - Tilings and tile sets: api/tiling.md
       - Tiling types: api/types.md
       - Prototile validity: api/prototile.md
+      - Edge curves: api/edges.md
+      - Presets: api/presets.md
+      - Serialization and plotting: api/io.md
       - Adjacency: api/adjacency.md
   - Development: development.md
   - Branding: branding.md

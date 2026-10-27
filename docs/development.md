@@ -22,6 +22,7 @@ with it. Install the pre-commit hooks with `uv run pre-commit install`.
 uv run pytest                    # all tests
 uv run pytest -m tactile         # only the comparison with tactile
 uv run pytest -m "not tactile"   # everything else
+uv run pytest -m "not slow"      # without the tests that draw many random curved tilings
 uv run pytest --cov              # with coverage
 ```
 
@@ -58,7 +59,7 @@ uv run mkdocs serve              # live preview at http://127.0.0.1:8000
 ```
 
 The API reference is generated from the docstrings (numpy style) by mkdocstrings. A name that is added to
-`isotile.__all__` needs an entry in `docs/api/`. Code in the pages `index.md`, `quickstart.md`, `concepts.md` and
+`isotile.__all__` needs an entry in `docs/api/`. Code in the pages `index.md`, `quickstart.md`, `concepts.md`, `curves.md` and
 `adjacency.md` fenced as `python` is executed by the tests; use `text` or `bash` for code that must not run.
 
 ## Regenerate the figures

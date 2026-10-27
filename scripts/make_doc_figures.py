@@ -33,9 +33,11 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection, PolyCollection
+from matplotlib.lines import Line2D
 from matplotlib.patches import FancyArrowPatch, Polygon, Rectangle
 
-from isotile import IsohedralTiling, TileSet, get_type
+from isotile import IsohedralTiling, TileSet, check_prototile, enforce_symmetry, get_type, interpolate
+from isotile.curves import native_edge_transforms, normalize_curves, outline
 
 ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
@@ -143,7 +145,7 @@ def frame(ax, center, half, th: Theme, title: str | None = None) -> None:
 
 def draw(ax, tiles: TileSet, faces, th: Theme, lw: float = 0.9, zorder: float = 1, edge: str | None = None) -> None:
     """Draw the tiles that reach into the window of the axes (set the window first, see ``frame``)."""
-    polygons = tiles.vertices()
+    polygons = tiles.outlines()
     (x0, x1), (y0, y1) = ax.get_xlim(), ax.get_ylim()
     keep = np.flatnonzero(
         (polygons[..., 0].max(axis=1) >= x0)
@@ -582,6 +584,167 @@ def fig_q_frames(th: Theme):
     return fig
 
 
+# Edge shapes and curves
+
+
+def outward(tiling: IsohedralTiling, i: int) -> np.ndarray:
+    """Unit vector away from the centroid at the midpoint of edge ``i`` of the straight prototile."""
+    v = tiling.vertices
+    mid = (v[i] + v[(i + 1) % len(v)]) / 2 - tiling.centroid
+    return mid / np.linalg.norm(mid)
+
+
+def fig_concepts_edges(th: Theme):
+    """The straight prototile of two types with the edges colored by shape id, labeled with the shape."""
+    numbers = (28, 13)
+    fig, axes = new_axes(2, aspect=1.0, wspace=0.12)
+    for ax, number in zip(axes, numbers, strict=True):
+        tiling = unit(IsohedralTiling(number))
+        v, c = tiling.vertices, tiling.centroid
+        maps = tiling.edge_transforms
+        ids = tiling.edge_shape_ids
+        half = 1.05 * float(np.abs(np.vstack([v - c, c - c])).max()) + 0.3
+        frame(ax, c, (half, half), th, f"IH{number}")
+        ax.add_patch(Polygon(v, fc=th.muted, ec="none", zorder=1))
+        for i, info in enumerate(tiling.edges):
+            a, b = v[i], v[(i + 1) % len(v)]
+            color = th.aspects[int(ids[i]) % 4]
+            ax.plot([a[0], b[0]], [a[1], b[1]], color=color, lw=3.2, solid_capstyle="round", zorder=3)
+            p0, p1 = maps[i] @ [0, 0, 1], maps[i] @ [1, 0, 1]  # the canonical edge, from (0, 0) to (1, 0)
+            mid, d = (p0 + p1) / 2, (p1 - p0) / np.linalg.norm(p1 - p0)
+            n = outward(tiling, i)
+            arrow(ax, mid - 0.09 * d + 0.12 * n, mid + 0.09 * d + 0.12 * n, th, color, lw=1.6)
+            label(ax, mid + 0.34 * n, f"id {info.shape_id}: {info.shape}", th, color, 8.5)
+        for p in v:
+            dot(ax, p, th, th.text, 3.5)
+    return fig
+
+
+def canonical_axes(ax, th: Theme, title: str) -> None:
+    ax.set_xlim(-0.12, 1.12)
+    ax.set_ylim(-0.42, 0.42)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title(title, fontsize=9, color=th.text, pad=4)
+    ax.plot([0, 1], [0, 0], color=th.faint, lw=0.8, ls=(0, (2, 2)), zorder=1)
+    for x in (0, 1):
+        dot(ax, (x, 0), th, th.text, 4.5)
+
+
+def fig_curve_shapes(th: Theme):
+    """One curve per edge shape on the canonical edge, with the paired control points joined."""
+    raw = {
+        "I": [(0, 0), (1, 0)],
+        "J": [(0, 0), (0.22, 0.2), (0.5, -0.12), (0.78, 0.16), (1, 0)],
+        "U": [(0, 0), (0.17, 0.2), (0.34, 0.3), (0.5, 0.1), (0, 0), (0, 0), (0, 0)],
+        "S": [(0, 0), (0.17, 0.2), (0.34, 0.26), (0.5, 0), (0, 0), (0, 0), (0, 0)],
+    }
+    titles = {
+        "I": "I: straight",
+        "J": "J: free",
+        "U": "U: mirror, x -> 1 - x",
+        "S": "S: rotation, (x, y) -> (1 - x, -y)",
+    }
+    fig, axes = new_axes(4, aspect=0.66, wspace=0.05)
+    for ax, (shape, points) in zip(axes, raw.items(), strict=True):
+        pts = enforce_symmetry(points, shape)
+        canonical_axes(ax, th, titles[shape])
+        m = len(pts)
+        s = interpolate(pts)
+        ax.plot(s[:, 0], s[:, 1], color=th.blue, lw=2.0, zorder=3)
+        if shape == "U":
+            ax.plot([0.5, 0.5], [-0.4, 0.4], color=th.amber, lw=1.0, ls=(0, (4, 3)), zorder=2)
+        if shape == "S":
+            dot(ax, (0.5, 0), th, th.amber, 5.5)
+        for k in range(m // 2):
+            a, b = pts[k], pts[m - 1 - k]
+            if shape in ("U", "S"):
+                ax.plot([a[0], b[0]], [a[1], b[1]], color=th.amber, lw=0.9, ls=(0, (3, 2)), zorder=2)
+        if shape != "I":
+            ax.plot(pts[1:-1, 0], pts[1:-1, 1], "o", ms=4.5, color=th.blue, mec=th.surface, mew=0.8, zorder=5)
+    return fig
+
+
+def fig_curve_modes(th: Theme):
+    """The same control points as a spline and as a polyline."""
+    points = np.array([(0, 0), (0.18, 0.22), (0.4, 0.1), (0.62, -0.2), (0.84, -0.1), (1, 0)])
+    fig, (ax,) = new_axes(1, aspect=0.3, width=WIDTH * 0.7)
+    canonical_axes(ax, th, "")
+    s = interpolate(points)
+    ax.plot(points[:, 0], points[:, 1], color=th.green, lw=1.4, ls=(0, (4, 2)), zorder=2)
+    ax.plot(s[:, 0], s[:, 1], color=th.blue, lw=2.0, zorder=3)
+    ax.plot(points[1:-1, 0], points[1:-1, 1], "o", ms=4.5, color=th.text, mec=th.surface, mew=0.8, zorder=5)
+    ax.set_ylim(-0.4, 0.4)
+    ax.legend(
+        [Line2D([], [], color=th.blue, lw=2.0), Line2D([], [], color=th.green, lw=1.4, ls=(0, (4, 2)))],
+        ["spline", "linear"],
+        loc="lower center",
+        ncol=2,
+        frameon=False,
+        fontsize=8.5,
+        labelcolor=th.text,
+        bbox_to_anchor=(0.5, -0.22),
+    )
+    return fig
+
+
+def fig_curves_prototile(th: Theme):
+    """The straight and the curved prototile of the example of the Edge curves page."""
+    ns = doc_namespace("curves.md", "curved = ")
+    curved = unit(ns["curved"])
+    c = curved.centroid
+    fig, axes = new_axes(2, aspect=1.0, wspace=0.08)
+    straight, with_curves = axes
+    for ax, title in ((straight, "straight prototile"), (with_curves, "with edge curves")):
+        frame(ax, c, (0.95, 0.95), th, title)
+    straight.add_patch(Polygon(curved.prototile(curved=False), fc=th.tints[0], ec=th.text, lw=1.6, zorder=3))
+    with_curves.add_patch(Polygon(curved.prototile(), fc=th.tints[0], ec=th.text, lw=1.6, zorder=3))
+    with_curves.add_patch(Polygon(curved.vertices, fill=False, ec=th.text, lw=0.9, ls=(0, (3, 3)), zorder=4))
+    for ax in axes:
+        for p in curved.vertices:
+            dot(ax, p, th, th.text, 3.5)
+    return fig
+
+
+def fig_curves_tiling(th: Theme):
+    """Curved tilings of IH28 and IH29."""
+    ns = doc_namespace("curves.md", "curved = ")
+    wavy = {1: [(0, 0), (0.25, 0.14), (0.5, 0.04), (0.75, 0.14), (1, 0)]}
+    tilings = [ns["curved"], IsohedralTiling(29, edge_curves=wavy)]
+    fig, axes = new_axes(2, aspect=1.0, wspace=0.08)
+    for ax, base in zip(axes, tilings, strict=True):
+        tiling = unit(base)
+        c = tiling.centroid
+        tiles = window_tiles(tiling, c, (2.6, 2.6))
+        frame(ax, c, (1.9, 1.9), th, f"IH{base.type.number}")
+        draw(ax, tiles, color_faces(tiles, th, central(tiles, c)), th)
+    return fig
+
+
+def fig_curves_invalid(th: Theme):
+    """A valid and an invalid outline of the same type, the edges that check_prototile names in red."""
+    t = get_type(41)
+    cases = [
+        ("valid", {0: [(0, 0), (0.25, 0.15), (0.75, -0.1), (1, 0)]}, None),
+        ("self-intersecting", {0: [(0, 0), (0.8, 0.5), (0.2, 0.5), (1, 0)]}, {0: "linear"}),
+    ]
+    fig, axes = new_axes(2, aspect=1.0, wspace=0.08)
+    for ax, (title, curves, modes) in zip(axes, cases, strict=True):
+        report = check_prototile(41, edge_curves=curves, edge_curve_modes=modes)
+        points, starts = outline(t, native_edge_transforms(t, t.default_params), normalize_curves(t, curves, modes))
+        closed = np.vstack([points, points[:1]])
+        frame(ax, (0.5, 0.62), (1.05, 1.05), th, f"{title}: bad_edges = {report.bad_edges}")
+        if report.valid:
+            ax.add_patch(Polygon(points, fc=th.tints[0], ec="none", zorder=1))
+        for i in range(t.n_vertices):
+            seg = closed[starts[i] : starts[i + 1] + 1]
+            bad = i in report.bad_edges
+            ax.plot(seg[:, 0], seg[:, 1], color="#d6453d" if bad else th.text, lw=2.2 if bad else 1.6, zorder=4)
+        for p in t.vertex_coeffs[:, :, -1]:
+            dot(ax, p, th, th.text, 3.5)
+    return fig
+
+
 FIGURES = {
     "hero": fig_hero,
     "concepts-lattice": fig_lattice,
@@ -589,6 +752,12 @@ FIGURES = {
     "concepts-cells": fig_cells,
     "concepts-families": fig_families,
     "concepts-parameters": fig_parameters,
+    "concepts-edges": fig_concepts_edges,
+    "curves-shapes": fig_curve_shapes,
+    "curves-modes": fig_curve_modes,
+    "curves-prototile": fig_curves_prototile,
+    "curves-tiling": fig_curves_tiling,
+    "curves-invalid": fig_curves_invalid,
     "adjacency-neighbors": fig_neighbors,
     "adjacency-offsets": fig_offsets,
     "adjacency-matrix": fig_matrix,
