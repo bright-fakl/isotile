@@ -134,18 +134,27 @@ print(outlines.shape, len(tiles.adjacency("edge").nonzero()[0]))
 
 ## Validity
 
-A curved prototile is valid when its outline is a simple closed curve with positive area, and the straight prototile
-of the same parameters is valid. No other condition is needed: the curve of an edge is the curve of its partner edge,
+A curved prototile is valid when
+
+1. the straight prototile of the same parameters is valid,
+2. its outline is a simple closed curve with positive area, and
+3. parts of the outline that are not directly consecutive are at least `1e-6 * diameter` apart, where the diameter is
+   the larger side of the bounding box of the outline in native coordinates.
+
+Touching or nearly touching parts of the outline are therefore invalid. No other condition is needed: the curve of an edge is the curve of its partner edge,
 so tiles that are adjacent in the straight tiling fit along every shared edge, they do not overlap, and the union of
 the tiles is the plane. The area of the curved prototile equals the area of the straight prototile, and the
 adjacency of the tiles is the one of the straight tiling.
 
-The outline is tested as a polyline through the samples of the curves, with the sampling of `prototile()`. It is not
-simple if two segments that are not neighbors cross, touch or overlap, if neighboring segments fold back onto each
-other, or if a segment has zero length. Validity does not depend on the frame; it is judged in native coordinates.
+The test is exact for the curve, not for a sampled polyline: a spline is tested as its cubic pieces and a linear curve
+as its segments, so the result does not depend on `n_points`, which only sets how finely the outline is drawn. Pieces
+that are directly consecutive may share their join; two of them are separated by their shape except near the join.
+The outline is invalid if a piece turns its tangent by 180 degrees or more or has a vanishing tangent, if the tangent
+turns by 180 degrees or more at a join (the curve folds back), if a piece has zero length, or if two other parts come
+closer than the clearance. Validity does not depend on the frame; it is judged in native coordinates.
 
 `check_prototile(tiling_type, parameters, edge_curves=..., edge_curve_modes=...)` returns a `PrototileReport` without
-building a tiling: `valid`, the sorted `bad_edges` (edges whose curves cross, touch or fold back) and a `message`. The
+building a tiling: `valid`, the sorted `bad_edges` (edges whose curves cross, touch, come closer than the clearance or fold back) and a `message`. The
 constructor and the `parameters` setter apply the same test and raise `ValueError` when it fails; the setter keeps the
 previous state. Curves can be valid in the spline mode and invalid in the linear mode, and the other way round.
 

@@ -325,8 +325,8 @@ class IsohedralTiling:
         curved : bool, default True
             Replace the edges by their curves.
         n_points : int, optional
-            Samples per spline edge, see [`interpolate`][isotile.interpolate]; the default is the number used for
-            the validity test.
+            Samples per spline edge, see [`interpolate`][isotile.interpolate]. It only sets how finely the outline is
+            drawn; validity does not depend on it.
         """
         points = self._curved_outline(n_points)[0] if curved else self._vertices
         if not normalized:

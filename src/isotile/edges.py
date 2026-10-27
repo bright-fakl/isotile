@@ -178,6 +178,33 @@ def interpolate(points: ArrayLike, mode: str = "spline", n_points: int | None = 
     return samples
 
 
+def bezier_pieces(points: ArrayLike, mode: str = "spline") -> Array:
+    """The curve of [`interpolate`][isotile.interpolate] as cubic Bezier pieces, exactly.
+
+    Returns an array of shape ``(k, 4, 2)``, the four control points of each piece in order along the curve. The
+    spline has one piece between consecutive (distinct) control points; the linear mode and a spline with at most two
+    distinct points give one straight piece per segment (a degenerate Bezier with control points at the thirds).
+    """
+    if mode not in MODES:
+        raise ValueError(f"unknown interpolation mode {mode!r}; expected 'spline' or 'linear'")
+    p = _points(points)
+    if mode == "spline":
+        keep = np.ones(len(p), dtype=bool)
+        keep[1:] = np.linalg.norm(np.diff(p, axis=0), axis=1) > _DUPLICATE_TOL
+        p = p[keep]
+        if len(p) > 2:
+            t: Array = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))])
+            t /= t[-1]
+            c = CubicSpline(t, p, bc_type="natural").c  # (4, k, 2): c[0] s^3 + c[1] s^2 + c[2] s + c[3]
+            h = np.diff(t)[:, None]
+            a, b, d1, d0 = c[0] * h**3, c[1] * h**2, c[2] * h, c[3]
+            pieces: Array = np.stack([d0, d0 + d1 / 3.0, d0 + 2.0 * d1 / 3.0 + b / 3.0, a + b + d1 + d0], axis=1)
+            return pieces
+    start, end = p[:-1], p[1:]
+    straight: Array = np.stack([start, (2 * start + end) / 3.0, (start + 2 * end) / 3.0, end], axis=1)
+    return straight
+
+
 @dataclass(frozen=True, eq=False)
 class EdgeShape:
     """A curve on the canonical edge together with the shape that constrains it.
@@ -231,6 +258,15 @@ class EdgeShape:
         projected[0], projected[-1] = (0.0, 0.0), (1.0, 0.0)
         projected.setflags(write=False)
         return cls(cast("Shape", shape), projected, cast("Mode", mode))
+
+    def pieces(self) -> Array:
+        """The curve as cubic Bezier pieces, as computed by ``bezier_pieces``."""
+        cached = self.__dict__.get("_pieces")
+        if cached is None:
+            cached = bezier_pieces(self.points, self.mode)
+            cached.setflags(write=False)
+            object.__setattr__(self, "_pieces", cached)
+        return cached  # type: ignore[no-any-return,unused-ignore]
 
     def samples(self, n_points: int | None = None) -> Array:
         """The curve as a polyline, see [`interpolate`][isotile.interpolate]."""

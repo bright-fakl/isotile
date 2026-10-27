@@ -1,11 +1,10 @@
 """The prototile with curved edges: its outline in the plane and its validity.
 
-A curved prototile is valid when its outline, the closed curve that runs along the edge curves in order, is a simple
-closed curve with positive area (and the straight prototile of the same parameters is valid). The edge shapes make the
-copies of the prototile fit along every shared edge, so no further condition is needed.
-
-The outline is a polyline: each curved edge is sampled with [`interpolate`][isotile.interpolate] and the test works on
-these samples.
+A curved prototile is valid when the straight prototile of the same parameters is valid and the outline, the closed
+curve that runs along the edge curves in order, is a simple closed curve with positive area whose parts that are not
+directly consecutive are at least ``1e-6`` times the diameter of the outline apart. The edge shapes make the copies
+of the prototile fit along every shared edge, so no further condition is needed. The test is exact for the curve
+itself (see `isotile.clearance`); it does not depend on how the curve is sampled for drawing.
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
+from .clearance import bounding_box, check_pieces, signed_area
 from .edges import EdgeShape
 from .prototile import PrototileReport
 from .types import TilingType
@@ -23,9 +23,8 @@ from .types import TilingType
 Array = NDArray[np.float64]
 IntArray = NDArray[np.int64]
 
-_ORIENT_TOL = 1e-12  # relative to the squared extent of the outline
-_LENGTH_TOL = 1e-12  # relative to the extent of the outline
-_AREA_TOL = 1e-9  # relative to the squared extent of the outline
+CLEARANCE = 1e-6  # smallest distance between parts of the outline, relative to its diameter
+_AREA_TOL = 1e-9  # smallest area of the outline, relative to the squared diameter
 
 
 @dataclass(frozen=True, eq=False)
@@ -162,92 +161,37 @@ def edge_infos(tiling_type: TilingType, curves: Mapping[int, EdgeShape]) -> tupl
     )
 
 
-def check_outline(points: Array, starts: IntArray) -> tuple[tuple[int, ...], str]:
-    """Test that the closed polyline is simple and has positive area.
+def placed_pieces(tiling_type: TilingType, edge_maps: Array, curves: Mapping[int, EdgeShape]) -> tuple[Array, IntArray]:
+    """Cubic Bezier pieces ``(N, 4, 2)`` of the closed outline in order, and the edge of each piece.
 
-    Returns the sorted edges at fault (edge ``i`` owns the segments ``starts[i]`` to ``starts[i + 1] - 1``) and the
-    message; the message is ``"valid"`` and the edges empty if there is no fault. Faults: segments of zero length;
-    two segments that are not neighbors and cross, touch or overlap; neighboring segments that fold back onto each
-    other; an area that is not positive (up to a relative ``1e-9`` of the squared extent).
+    Straight edges are one straight piece. Reversed edges are traversed from their end.
     """
-    n = len(points)
-    nxt = np.roll(points, -1, axis=0)
-    seg = nxt - points
-    length = np.linalg.norm(seg, axis=1)
-    extent = float(np.ptp(points, axis=0).max())
-    owner = np.repeat(np.arange(len(starts) - 1), np.diff(starts))
-    problems: list[str] = []
-    bad: set[int] = set()
-
-    short = np.flatnonzero(length <= _LENGTH_TOL * extent)
-    if len(short):
-        bad.update(owner[short].tolist())
-        problems.append(f"zero-length segments in edges {sorted(set(owner[short].tolist()))}")
-
-    tol = _ORIENT_TOL * extent**2
-
-    def side(p: Array, q: Array, r: Array) -> Array:
-        c = (q[:, 0] - p[:, 0]) * (r[:, 1] - p[:, 1]) - (q[:, 1] - p[:, 1]) * (r[:, 0] - p[:, 0])
-        signs: Array = np.where(np.abs(c) <= tol, 0.0, np.sign(c))
-        return signs
-
-    def on_segment(p: Array, q: Array, r: Array) -> NDArray[np.bool_]:
-        """r lies in the bounding box of pq (r is known to be collinear with p and q)."""
-        inside: NDArray[np.bool_] = (
-            (np.minimum(p[:, 0], q[:, 0]) <= r[:, 0])
-            & (r[:, 0] <= np.maximum(p[:, 0], q[:, 0]))
-            & (np.minimum(p[:, 1], q[:, 1]) <= r[:, 1])
-            & (r[:, 1] <= np.maximum(p[:, 1], q[:, 1]))
-        )
-        return inside
-
-    lo, hi = np.minimum(points, nxt), np.maximum(points, nxt)
-    eps = 1e-9 * extent
-    close = np.ones((n, n), dtype=bool)
-    for axis in (0, 1):
-        close &= (lo[:, None, axis] <= hi[None, :, axis] + eps) & (lo[None, :, axis] <= hi[:, None, axis] + eps)
-    candidate = np.triu(close, 2)
-    candidate[0, n - 1] = False
-    i, j = np.nonzero(candidate)
-    p, q, r, s = points[i], nxt[i], points[j], nxt[j]
-    d1, d2, d3, d4 = side(p, q, r), side(p, q, s), side(r, s, p), side(r, s, q)
-    hit = (
-        ((d1 * d2 < 0) & (d3 * d4 < 0))
-        | ((d1 == 0) & on_segment(p, q, r))
-        | ((d2 == 0) & on_segment(p, q, s))
-        | ((d3 == 0) & on_segment(r, s, p))
-        | ((d4 == 0) & on_segment(r, s, q))
-    )
-    if hit.any():
-        pairs = sorted({(int(owner[a]), int(owner[b])) for a, b in zip(i[hit], j[hit], strict=True)})
-        bad.update(x for pair in pairs for x in pair)
-        problems.append(
-            "edges cross or touch: " + ", ".join(f"{a}-{b}" if a != b else f"{a} (itself)" for a, b in pairs)
-        )
-
-    following = np.roll(seg, -1, axis=0)
-    cross = seg[:, 0] * following[:, 1] - seg[:, 1] * following[:, 0]
-    folded = np.flatnonzero((np.abs(cross) <= tol) & (np.sum(seg * following, axis=1) < 0))
-    if len(folded):
-        edges = sorted(set(owner[folded].tolist()) | set(owner[(folded + 1) % n].tolist()))
-        bad.update(edges)
-        problems.append(f"the curve folds back onto itself in edges {edges}")
-
-    area = 0.5 * float(np.sum(points[:, 0] * nxt[:, 1] - nxt[:, 0] * points[:, 1]))
-    if not area > _AREA_TOL * extent**2:
-        if not bad:
-            bad.update(range(len(starts) - 1))
-        problems.append("the outline does not have positive area")
-
-    if not problems:
-        return (), "valid"
-    return tuple(sorted(bad)), "; ".join(problems)
+    reversed_ = tiling_type.edge_orientations[:, 0] != tiling_type.edge_orientations[:, 1]
+    pieces: list[Array] = []
+    owner: list[int] = []
+    for i, (sid, m) in enumerate(zip(tiling_type.edge_shape_ids.tolist(), edge_maps, strict=True)):
+        local = curves.get(sid, STRAIGHT).pieces()
+        placed = local @ m[:, :2].T + m[:, 2]
+        if reversed_[i]:
+            placed = placed[::-1, ::-1]
+        pieces.append(placed)
+        owner.extend([i] * len(placed))
+    return np.concatenate(pieces), np.array(owner, dtype=np.int64)
 
 
-def check_curves(
-    tiling_type: TilingType, parameters: Array, curves: Mapping[int, EdgeShape], n_points: int | None = None
-) -> PrototileReport:
-    """Validity of the outline of a prototile with curves, in native coordinates (the straight prototile is valid)."""
-    points, starts = outline(tiling_type, native_edge_transforms(tiling_type, parameters), curves, n_points)
-    bad, message = check_outline(points, starts)
-    return PrototileReport(not bad and message == "valid", bad, message)
+def check_curves(tiling_type: TilingType, parameters: Array, curves: Mapping[int, EdgeShape]) -> PrototileReport:
+    """Validity of the outline of a prototile with curves, in native coordinates (the straight prototile is valid).
+
+    The outline must be a simple closed curve with positive area, and parts of it that are not directly consecutive
+    must be at least ``1e-6`` times its diameter apart (the larger side of its bounding box). The result does not
+    depend on how the curves are sampled.
+    """
+    pieces, owner = placed_pieces(tiling_type, native_edge_transforms(tiling_type, parameters), curves)
+    low, high = bounding_box(pieces)
+    diameter = float((high - low).max())
+    n_edges = tiling_type.n_vertices
+    bad, problems = check_pieces(pieces, owner, n_edges, CLEARANCE * diameter)
+    if not problems and not signed_area(pieces) > _AREA_TOL * diameter**2:
+        bad = tuple(range(n_edges))
+        problems = ["the outline does not have positive area"]
+    return PrototileReport(not problems, bad, "; ".join(problems) if problems else "valid")

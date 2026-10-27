@@ -26,7 +26,8 @@ class PrototileReport:
     ----------
     valid : bool
         True if the straight prototile is a simple polygon with nonzero edge lengths and area and, when edge curves
-        are checked, its outline with the curves is a simple closed curve with positive area.
+        are checked, its outline with the curves is a simple closed curve with positive area whose non-consecutive parts are at least
+        ``1e-6`` times its diameter apart.
     bad_edges : tuple of int
         Sorted indices of the edges at fault (edge ``i`` joins vertex ``i`` to vertex ``i + 1``): zero-length edges,
         edges of every pair that crosses or touches without being neighbors, and neighboring edges that fold
@@ -117,10 +118,13 @@ def check_prototile(
 
     The straight prototile is valid when it is a simple polygon with nonzero edge lengths and area. With
     ``edge_curves`` the outline with the edges replaced by their curves must in addition be a simple closed curve
-    with positive area; the edge shapes make the copies fit along the shared edges, so this is the complete
-    condition. The outline is tested as a polyline of the samples of the curves (see
-    [`interpolate`][isotile.interpolate]). In the report of a curved outline, ``bad_edges`` are the edges whose
-    curves cross, touch, fold back or have zero length.
+    with positive area, and parts of it that are not directly consecutive must be at least ``1e-6`` times the
+    diameter of the outline apart (the larger side of its bounding box); touching or nearly touching curves are
+    invalid. The edge shapes make the copies fit along the shared edges, so this is the complete condition. The
+    test is exact for the curve (a spline is tested as its cubic pieces, see [`interpolate`][isotile.interpolate]),
+    so it does not depend on the number of samples used to draw the outline. In the report of a curved outline,
+    ``bad_edges`` are the edges whose curves cross, touch, come closer than the clearance, fold back (turn by 180
+    degrees or more) or have zero length.
 
     This is the test the [`IsohedralTiling`][isotile.IsohedralTiling] constructor applies; it builds no tiling, so an
     editor can call it for every intermediate state. The prototile is checked in the type's native coordinates (a

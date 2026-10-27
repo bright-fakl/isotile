@@ -12,7 +12,9 @@ All notable changes to isotile are documented here. The format follows
   and `edge_outlines()`; `TileSet.outlines()` and `TileSet.polygons(curved=True)`.
 - `EdgeShape`, `enforce_symmetry` (idempotent projection by index onto the `U` and `S` constraints), `is_symmetric`
   and `interpolate` (natural cubic spline on the chord-length parameter, or the control points).
-- Validity of curves: the outline must be a simple closed curve with positive area. `check_prototile` takes
+- Validity of curves: the outline must be a simple closed curve with positive area whose parts that are not directly
+  consecutive are at least `1e-6` times its diameter apart. The test is exact for the curve (spline pieces are tested
+  as cubic Beziers by subdivision) and does not depend on the sampling. `check_prototile` takes
   `edge_curves` and `edge_curve_modes`; the constructor and the `parameters` setter raise `ValueError` for an invalid
   outline and keep the previous state.
 - Tiling presets (`list_presets`, `IsohedralTiling.from_preset`) and edge curve presets (`list_edge_curve_presets`,
