@@ -14,7 +14,7 @@ from isotile import (
     tiling_types,
 )
 from isotile.clearance import bounding_box, check_pieces, signed_area
-from isotile.curves import CLEARANCE, check_curves, native_edge_transforms, normalize_curves, outline
+from isotile.curves import CLEARANCE, check_curves, native_edge_transforms, normalize_curves, outline, placed_pieces
 
 from .conftest import curvable_ids, random_curves, random_tilings
 from .sampled_check import check_outline
@@ -127,14 +127,95 @@ def test_fold_back_at_a_join():
     assert not spline.valid
 
 
-def test_loop_and_cusp_within_one_piece():
+HAIRPIN = np.array([[0, 0], [3, -0.5], [3, 1.5], [0, 1]], dtype=float)  # one piece, tangent turns by about 199 degrees
+
+
+def piece_turning(piece: np.ndarray) -> float:
+    """Total turning of the tangent of a cubic Bezier piece in degrees, by dense sampling."""
+    u = np.linspace(0, 1, 4001)[:, None]
+    d = (1 - u) ** 2 * (piece[1] - piece[0]) + 2 * (1 - u) * u * (piece[2] - piece[1]) + u**2 * (piece[3] - piece[2])
+    angle = np.unwrap(np.arctan2(d[:, 1], d[:, 0]))
+    return float(np.degrees(abs(angle[-1] - angle[0])))
+
+
+def test_hairpin_within_one_piece_is_valid_with_clearance():
+    assert piece_turning(HAIRPIN) > 190
+    chain = np.concatenate([HAIRPIN[None], segments([(0, 1), (-1, 0.5), (0, 0)])[:2]])
+    assert verdict(chain) == (True, "")
+
+
+def test_hairpin_that_closes_below_the_clearance_is_invalid():
+    """The same piece with its arms closer than the clearance: the two halves of one piece are tested."""
+    narrow = np.array([[0, 0], [3, -0.5], [3, 1.5], [0, 1]], dtype=float) * [1.0, 1e-9]
+    chain = np.concatenate([narrow[None], segments([(0, 1e-9), (-1, 0.5e-9), (0, 0)])[:2]])
+    ok, message = verdict(chain)
+    assert not ok and "clearance" in message
+
+
+def test_loop_and_cusp_within_one_piece_are_rejected():
     tail = [(0.5, -1.0)]
-    loop = np.array([[0, 0], [1, 1], [0, 1], [1, 0]], dtype=float)  # a cubic with a loop
-    cusp = np.array([[0, 0], [1, 0], [0, 0], [1, 0]], dtype=float)  # goes forward, back and forward on a line
+    loop = np.array([[0, 0], [1, 1], [0, 1], [1, 0]], dtype=float)  # a cubic with a loop: it crosses itself
+    cusp = np.array([[0, 0], [2, 0], [-1, 0], [1, 0]], dtype=float)  # forward, back and forward on one line
     for piece in (loop, cusp):
         chain = np.concatenate([piece[None], segments([(1, 0), *tail, (0, 0)])[:2]])
         ok, message = verdict(chain)
-        assert not ok and "fold" in message
+        assert not ok and "clearance" in message
+
+
+def test_hairpin_at_a_join_is_a_fold_back():
+    """Two pieces that leave a join in opposite directions overlap along a stretch; the join is rejected."""
+    a = np.array([[0, 0], [1, 0], [2, 0], [3, 0]], dtype=float)
+    b = np.array([[3, 0], [2.5, 0], [1.5, 0.0], [1.0, 0.5]], dtype=float)
+    chain = np.concatenate([a[None], b[None], segments([(1.0, 0.5), (1.0, 3.0), (0, 3.0), (0, 0)])[:1]])
+    ok, message = verdict(chain)
+    assert not ok and "fold" in message
+
+
+HAIRPIN_DRAWS = [  # random draws of the evidence runs that have a piece turning by more than 180 degrees
+    (
+        85,
+        [0.595533609677415, 0.10577577998128167],
+        {
+            1: [[0, 0], [0.1522, 0.0994], [0.4012, 0.0789], [0.6088, -0.0416], [0.9325, -0.0851], [1, 0]],
+            2: [[0, 0], [0.1828, 0.0724], [0.7483, -0.0578], [0.8547, -0.0634], [0.9496, -0.0598], [1, 0]],
+        },
+    ),
+    (
+        49,
+        [0.30349533131551854, 0.47157361225108096, 0.17301841957665662],
+        {
+            1: [[0, 0], [0.0924, -0.0507], [0.5917, 0.0255], [0.6263, 0.0833], [0.8981, -0.023], [1, 0]],
+            3: [[0, 0], [0.0936, -0.0414], [0.787, -0.0513], [0.8568, 0.0817], [1, 0]],
+        },
+    ),
+    (
+        21,
+        [0.12837687777022913, 0.6965440276943864],
+        {
+            0: [[0, 0], [0.1581, 0.1602], [0.6189, -0.0553], [0.7005, -0.1916], [0.7995, 0.1654], [1, 0]],
+            1: [[0, 0], [0.14, -0.2879], [0.1633, -0.1984], [0.7491, 0.0875], [1, 0]],
+            2: [[0, 0], [0.329, 0.0244], [0.6893, -0.1912], [0.6958, -0.0893], [0.781, -0.1797], [1, 0]],
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize(("number", "parameters", "curves"), HAIRPIN_DRAWS, ids=[f"IH{d[0]}" for d in HAIRPIN_DRAWS])
+def test_curves_with_a_hairpin_piece_are_valid_and_tile_once(number, parameters, curves):
+    shapely = pytest.importorskip("shapely")
+    t = get_type(number)
+    pieces, _ = placed_pieces(t, native_edge_transforms(t, np.array(parameters)), normalize_curves(t, curves, None))
+    assert max(piece_turning(p) for p in pieces) > 180
+    assert check_prototile(number, parameters, edge_curves=curves).valid
+    tiling = IsohedralTiling(number, parameters, edge_curves=curves)
+    s, c = np.sqrt(tiling.area), tiling.centroid
+    box = (c[0] - 2 * s, c[1] - 2 * s, c[0] + 2 * s, c[1] + 2 * s)
+    tiles = tiling.cover((box[0] - 4 * s, box[1] - 4 * s, box[2] + 4 * s, box[3] + 4 * s))
+    polygons = shapely.polygons(tiles.outlines())
+    points = shapely.points(np.random.default_rng(0).uniform([box[0], box[1]], [box[2], box[3]], (2000, 2)))
+    index, _ = shapely.STRtree(polygons).query(points, predicate="within")
+    counts = np.bincount(index, minlength=2000)
+    assert counts.min() == 1 and counts.max() == 1
 
 
 def test_straight_pieces_and_zero_length():
@@ -188,14 +269,14 @@ def draws(seed: int, amplitudes=(0.1, 0.4, 1.0, 2.0)):
 def test_agreement_with_the_sampled_test_and_geos():
     """The certified test rejects what the polyline test rejects, and accepts what GEOS and the polyline accept.
 
-    Allowed differences: a polyline that is simple although the curve folds back (a single piece that turns by
-    more than 180 degrees), and crossings or near-touches finer than the sample spacing.
+    Allowed differences: crossings or near-touches finer than the sample spacing (rejected only by the certified
+    test), and polyline crossings that sampling creates in sharp turns (rejected only by the sampled test).
     """
     shapely = pytest.importorskip("shapely")
     accepted_by_sampling_only = []
     rejected_by_sampling_only = []
     n = 0
-    for number, parameters, curves in draws(11):
+    for number, parameters, curves in [*draws(11), *draws(13)]:
         t = get_type(number)
         certified = check_prototile(number, parameters, edge_curves=curves).valid
         points, starts = outline(t, native_edge_transforms(t, parameters), normalize_curves(t, curves, None))
@@ -203,11 +284,14 @@ def test_agreement_with_the_sampled_test_and_geos():
         geos = shapely.Polygon(points).is_valid and shapely.Polygon(points).area > 0
         assert sampled == geos
         n += 1
+        if certified:  # soundness: the finely sampled polyline of every accepted outline is simple
+            fine, _ = outline(t, native_edge_transforms(t, parameters), normalize_curves(t, curves, None), 1500)
+            assert shapely.Polygon(fine).is_valid, number
         if sampled and not certified:
             accepted_by_sampling_only.append(number)
         if certified and not sampled:
             rejected_by_sampling_only.append(number)
-    assert n > 200
+    assert n > 400
     assert rejected_by_sampling_only == []
     assert len(accepted_by_sampling_only) <= 0.02 * n
 

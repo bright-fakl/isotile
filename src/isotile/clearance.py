@@ -3,10 +3,12 @@
 The outline is a closed chain of cubic Bezier pieces (straight pieces are degenerate Beziers). With ``tol`` the
 clearance, the test certifies that
 
-- every piece is a simple arc: the tangent turns by less than 180 degrees across it and does not vanish;
 - at every join of consecutive pieces the tangent turns by less than 180 degrees (no fold-back);
 - parts of the outline that are not directly consecutive pieces are at least ``tol`` apart, and parts of two
-  consecutive pieces are at least ``tol`` apart except where they contain the join.
+  consecutive pieces are at least ``tol`` apart except where they contain the join;
+- the same holds inside a piece that is not a simple arc by its tangents: its two halves are consecutive parts. A
+  piece may turn by 180 degrees or more (a hairpin) if its parts keep the clearance; a loop, a crossing or a cusp
+  whose branches come closer than ``tol`` is rejected.
 
 Pairs of pieces are separated by recursive subdivision (de Casteljau): two pieces whose control-point boxes, each
 grown by ``tol / 2``, are disjoint are at least ``tol`` apart; otherwise the one with the larger extent is split.
@@ -45,17 +47,26 @@ def _extent(p: Array) -> Array:
 
 
 def _flat(p: Array, tol: float) -> Mask:
-    """Pieces within ``tol / 4`` of their chord (or no larger than that)."""
+    """Pieces that are replaced by their chord: within ``tol / 4`` of it and not folding back along it.
+
+    A piece whose control polygon runs backward along the chord (by more than ``tol / 4``) is not flat, so a fold on a
+    line is subdivided until its parts are monotone or smaller than ``tol / 4``.
+    """
     chord = p[..., 3, :] - p[..., 0, :]
     length = np.linalg.norm(chord, axis=-1)
     safe = np.where(length > 0, length, 1.0)
     unit = chord / safe[..., None]
     dev = np.zeros(p.shape[:-2])
-    for k in (1, 2):
+    backward = np.zeros(p.shape[:-2])
+    previous = np.zeros(p.shape[:-2])
+    for k in (1, 2, 3):
         v = p[..., k, :] - p[..., 0, :]
         line = np.abs(v[..., 0] * unit[..., 1] - v[..., 1] * unit[..., 0])
         dev = np.maximum(dev, np.where(length > 0, line, np.linalg.norm(v, axis=-1)))
-    flat: Mask = (dev <= tol / 4) | (_extent(p) <= tol / 4)
+        along = np.sum(v * unit, axis=-1)
+        backward = np.maximum(backward, previous - along)
+        previous = np.maximum(previous, along)
+    flat: Mask = ((dev <= tol / 4) & (backward <= tol / 4)) | (_extent(p) <= tol / 4)
     return flat
 
 
@@ -131,29 +142,32 @@ def signed_area(pieces: Array) -> float:
     return float(0.5 * np.sum(integrand * w))
 
 
-def _turning(pieces: Array, tol: float) -> tuple[Array, Mask]:
-    """Total tangent turning of each piece and whether its tangent vanishes (cusp)."""
-    n = len(pieces)
-    total = np.zeros(n)
-    cusp = np.zeros(n, dtype=bool)
+def _self_pairs(pieces: Array, tol: float) -> tuple[Array, Array, IntArray]:
+    """Pairs of consecutive halves that must be tested to show that each piece has no self-intersection.
+
+    A piece whose tangents stay within an arc of less than 180 degrees is a simple arc. Any other piece is split at
+    its middle; the two halves are a pair of consecutive parts (they share the split point), and each half is
+    treated in the same way. Parts no larger than ``tol / 8`` are not split further. Returns the first halves, the
+    second halves and the index of the piece each pair belongs to.
+    """
+    firsts: list[Array] = []
+    seconds: list[Array] = []
+    owners: list[IntArray] = []
     current: Array = pieces
-    ids: IntArray = np.arange(n)
+    ids: IntArray = np.arange(len(pieces))
     for _ in range(_MAX_LEVELS):
-        d = np.diff(current, axis=1)
-        ok = _spread(d) < np.pi
-        angle = np.arctan2(d[..., 1], d[..., 0])
-        turn = (angle[:, 2] - angle[:, 0] + np.pi) % (2 * np.pi) - np.pi
-        np.add.at(total, ids[ok], turn[ok])
-        current, ids = current[~ok], ids[~ok]
+        need = (_spread(np.diff(current, axis=1)) >= np.pi) & (_extent(current) > tol / 8)
+        current, ids = current[need], ids[need]
         if not len(ids):
-            return total, cusp
-        tiny = _extent(current) <= tol / 8
-        cusp[ids[tiny]] = True
-        current, ids = current[~tiny], ids[~tiny]
+            break
         left, right = split(current)
+        firsts.append(left)
+        seconds.append(right)
+        owners.append(ids)
         current, ids = np.concatenate([left, right]), np.concatenate([ids, ids])
-    cusp[ids] = True
-    return total, cusp
+    if not firsts:
+        return np.empty((0, 4, 2)), np.empty((0, 4, 2)), np.empty(0, dtype=np.int64)
+    return np.concatenate(firsts), np.concatenate(seconds), np.concatenate(owners)
 
 
 def _end_tangent(p: Array) -> Array:
@@ -228,19 +242,15 @@ def check_pieces(pieces: Array, owner: IntArray, n_edges: int, tol: float) -> tu
         report("zero-length pieces in edges", zero)
     usable = ~zero
 
-    total, cusp = _turning(pieces[usable], tol)
-    full = np.zeros(n)
-    full[usable] = total
-    cusp_full = np.zeros(n, dtype=bool)
-    cusp_full[usable] = cusp
-    folded = usable & (cusp_full | (np.abs(full) >= _FOLD))
     nxt = np.roll(np.arange(n), -1)
     t_end, t_start = _end_tangent(pieces), _start_tangent(pieces[nxt])
     turn = np.arctan2(t_end[:, 0] * t_start[:, 1] - t_end[:, 1] * t_start[:, 0], np.sum(t_end * t_start, axis=1))
     join_fold = usable & usable[nxt] & (np.abs(turn) >= _FOLD)
-    if folded.any() or join_fold.any():
-        idx = np.concatenate([np.flatnonzero(folded), np.flatnonzero(join_fold), nxt[join_fold]])
-        report("the curve folds back (a turn of 180 degrees or more) in edges", idx)
+    if join_fold.any():
+        report(
+            "the curve folds back (a turn of 180 degrees or more) at the joins of edges",
+            np.concatenate([np.flatnonzero(join_fold), nxt[join_fold]]),
+        )
 
     # candidate pairs: all pairs of pieces that are not consecutive, and the consecutive pairs that need a test
     lo, hi = pieces.min(axis=1) - tol / 2, pieces.max(axis=1) + tol / 2
@@ -252,17 +262,22 @@ def check_pieces(pieces: Array, owner: IntArray, n_edges: int, tol: float) -> tu
     i, j = np.nonzero(candidate)
     keep = usable[i] & usable[j]
     i, j = i[keep], j[keep]
-    flags = np.zeros(len(i), dtype=bool)
 
     k = np.flatnonzero(usable & usable[nxt])
     d = np.diff(pieces, axis=1)
     smooth = _spread(np.concatenate([d[k], d[nxt[k]]], axis=1)) <= _SMOOTH
     k = k[~smooth]
     ia, ib = np.concatenate([i, k]), np.concatenate([j, nxt[k]])
-    flags = np.concatenate([flags, np.ones(len(k), dtype=bool)])
-    if len(ia):
-        hit = _refine(pieces[ia], pieces[ib], flags, flags, np.arange(len(ia)), len(ia), tol)
+    first, second, own = _self_pairs(pieces[usable], tol)
+    own = np.flatnonzero(usable)[own]
+    left = np.concatenate([pieces[ia], first])
+    right = np.concatenate([pieces[ib], second])
+    flags = np.concatenate([np.zeros(len(i), dtype=bool), np.ones(len(k) + len(first), dtype=bool)])
+    owners_a, owners_b = np.concatenate([ia, own]), np.concatenate([ib, own])
+    if len(left):
+        hit = _refine(left, right, flags, flags, np.arange(len(left)), len(left), tol)
         if hit.any():
-            edges = np.concatenate([ia[hit], ib[hit]])
-            report("edges cross, touch or are closer than the clearance", edges)
+            report(
+                "edges cross, touch or are closer than the clearance", np.concatenate([owners_a[hit], owners_b[hit]])
+            )
     return tuple(sorted(bad)), problems

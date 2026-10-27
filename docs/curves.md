@@ -148,10 +148,12 @@ adjacency of the tiles is the one of the straight tiling.
 
 The test is exact for the curve, not for a sampled polyline: a spline is tested as its cubic pieces and a linear curve
 as its segments, so the result does not depend on `n_points`, which only sets how finely the outline is drawn. Pieces
-that are directly consecutive may share their join; two of them are separated by their shape except near the join.
-The outline is invalid if a piece turns its tangent by 180 degrees or more or has a vanishing tangent, if the tangent
-turns by 180 degrees or more at a join (the curve folds back), if a piece has zero length, or if two other parts come
-closer than the clearance. Validity does not depend on the frame; it is judged in native coordinates.
+that are directly consecutive may share their join, and the two halves of one piece may share their middle point; the
+other parts must keep the clearance. A curve may therefore turn by 180 degrees or more within one piece (a hairpin)
+as long as its arms are at least the clearance apart. The outline is invalid if a loop, a crossing or a cusp brings
+two parts closer than the clearance, if the tangent turns by 180 degrees or more at a join (the curve folds back and
+the two pieces overlap along a stretch), if a piece has zero length, or if two other parts come closer than the
+clearance. Validity does not depend on the frame; it is judged in native coordinates.
 
 `check_prototile(tiling_type, parameters, edge_curves=..., edge_curve_modes=...)` returns a `PrototileReport` without
 building a tiling: `valid`, the sorted `bad_edges` (edges whose curves cross, touch, come closer than the clearance or fold back) and a `message`. The
