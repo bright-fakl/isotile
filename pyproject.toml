@@ -46,8 +46,17 @@ dev = [
     "hatchling",
 ]
 
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.26.1",
+    # mkdocstrings builds its code highlighter with the pre-12 signature of pymdownx.highlight.
+    "pymdown-extensions>=10.12,<12",
+]
+
 [tool.uv]
 # tactile is only needed by the equivalence tests; `uv sync --no-group tactile` leaves it out.
+# The docs group is not synced by default: `uv sync --group docs`.
 default-groups = ["dev", "tactile"]
 
 [build-system]
