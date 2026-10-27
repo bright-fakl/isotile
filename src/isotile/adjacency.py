@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -13,45 +13,57 @@ from scipy.spatial import cKDTree
 
 from .types import KIND_EDGE, KIND_VERTEX, TilingType
 
-if TYPE_CHECKING:
-    from .tiling import AdjacencyKind
+AdjacencyKind = Literal["edge", "vertex", "vertex-only"]
+
+_KINDS = {"edge": (KIND_EDGE,), "vertex": (KIND_EDGE, KIND_VERTEX), "vertex-only": (KIND_VERTEX,)}
 
 
-def lattice_adjacency(lattice: NDArray[np.int64], tiling_type: TilingType, kind: AdjacencyKind) -> csr_array:
-    """Adjacency of tiles given by ``(t1, t2, aspect)`` rows, from the type's table (independent of parameters)."""
-    kinds = {"edge": (KIND_EDGE,), "vertex": (KIND_EDGE, KIND_VERTEX), "vertex-only": (KIND_VERTEX,)}
+def lattice_adjacency(
+    cell: NDArray[np.int64], aspect: NDArray[np.int64], tiling_type: TilingType, kind: AdjacencyKind
+) -> csr_array:
+    """Adjacency of tiles given by their cells (n, 2) and aspects (n,), from the type's table.
+
+    The table does not depend on the parameters, the frame or the position of the tiling. Pairs where one tile is
+    not in the set are dropped. ``kind``: ``"edge"`` (shared edge), ``"vertex"`` (shared edge or vertex),
+    ``"vertex-only"`` (shared vertex, no shared edge).
+    """
     try:
-        wanted = kinds[kind]
+        wanted = _KINDS[kind]
     except KeyError:
         raise ValueError(f"kind must be 'edge', 'vertex' or 'vertex-only', got {kind!r}") from None
-    n = len(lattice)
+    n = len(cell)
     if n == 0:
         return csr_array((0, 0), dtype=bool)
-    na = tiling_type.n_aspects
-    lo = lattice[:, :2].min(axis=0) - 3
-    width = lattice[:, 1].max() - lo[1] + 4
+    n_aspects = tiling_type.n_aspects
+    low = cell.min(axis=0) - 3
+    width = cell[:, 1].max() - low[1] + 4
 
-    def key(t1, t2, a):
-        return ((t1 - lo[0]) * width + (t2 - lo[1])) * na + a
+    def key(u: NDArray[np.int64], v: NDArray[np.int64], a: int | NDArray[np.int64]) -> NDArray[np.int64]:
+        combined: NDArray[np.int64] = ((u - low[0]) * width + (v - low[1])) * n_aspects + a
+        return combined
 
-    keys = key(lattice[:, 0], lattice[:, 1], lattice[:, 2])
+    keys = key(cell[:, 0], cell[:, 1], aspect)
     order = np.argsort(keys)
     sorted_keys = keys[order]
-    rows, cols = [], []
-    for a, da, db, a2, k in tiling_type.adjacency:
+    rows: list[NDArray[np.int64]] = []
+    cols: list[NDArray[np.int64]] = []
+    for from_aspect, d_cell_u, d_cell_v, neighbor_aspect, k in tiling_type.adjacency.tolist():
         if k not in wanted:
             continue
-        src = np.flatnonzero(lattice[:, 2] == a)
-        target = key(lattice[src, 0] + da, lattice[src, 1] + db, a2)
-        pos = np.minimum(np.searchsorted(sorted_keys, target), n - 1)
-        found = sorted_keys[pos] == target
-        rows.append(src[found])
-        cols.append(order[pos[found]])
-    r, c = (np.concatenate(x) for x in (rows, cols)) if rows else (np.empty(0, int), np.empty(0, int))
-    return coo_array((np.ones(len(r), dtype=bool), (r, c)), shape=(n, n)).tocsr()
+        source = np.flatnonzero(aspect == from_aspect)
+        target = key(cell[source, 0] + d_cell_u, cell[source, 1] + d_cell_v, neighbor_aspect)
+        position = np.minimum(np.searchsorted(sorted_keys, target), n - 1)
+        found = sorted_keys[position] == target
+        rows.append(source[found])
+        cols.append(order[position[found]])
+    row = np.concatenate(rows) if rows else np.empty(0, dtype=np.int64)
+    col = np.concatenate(cols) if cols else np.empty(0, dtype=np.int64)
+    return coo_array((np.ones(len(row), dtype=bool), (row, col)), shape=(n, n)).tocsr()
 
 
-def geometric_adjacency(polygons: Sequence[NDArray[np.float64]], tol: float = 1e-6) -> tuple[csr_array, csr_array]:
+def geometric_adjacency(
+    polygons: Sequence[NDArray[np.float64]] | NDArray[np.float64], tol: float = 1e-6
+) -> tuple[csr_array, csr_array]:
     """Edge and vertex-only adjacency of polygons given as (k, 2) vertex arrays, by counting shared vertices.
 
     Vertices closer than ``tol`` are one vertex. Two polygons share an edge if they share 2 or more vertices and
@@ -62,15 +74,15 @@ def geometric_adjacency(polygons: Sequence[NDArray[np.float64]], tol: float = 1e
     pairs = cKDTree(pts).query_pairs(tol, output_type="ndarray")
     m = len(pts)
     graph = coo_array((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(m, m))
-    _, vid = connected_components(graph, directed=False)
-    inc = coo_array((np.ones(m), (owner, vid))).tocsr()
-    inc.data[:] = 1.0  # duplicate (polygon, vertex) entries were summed
-    shared = (inc @ inc.T).tocoo()
-    off = shared.row != shared.col
-    r, c, s = shared.row[off], shared.col[off], shared.data[off]
+    _, vertex_id = connected_components(graph, directed=False)
+    incidence = coo_array((np.ones(m), (owner, vertex_id))).tocsr()
+    incidence.data[:] = 1.0  # duplicate (polygon, vertex) entries were summed
+    shared = (incidence @ incidence.T).tocoo()
+    off_diagonal = shared.row != shared.col
+    row, col, count = shared.row[off_diagonal], shared.col[off_diagonal], shared.data[off_diagonal]
     n = len(polygons)
 
-    def build(mask):
-        return coo_array((np.ones(mask.sum(), dtype=bool), (r[mask], c[mask])), shape=(n, n)).tocsr()
+    def build(mask: NDArray[np.bool_]) -> csr_array:
+        return coo_array((np.ones(int(mask.sum()), dtype=bool), (row[mask], col[mask])), shape=(n, n)).tocsr()
 
-    return build(s >= 2), build(s == 1)
+    return build(count >= 2), build(count == 1)

@@ -43,8 +43,12 @@ dev = [
     "pre-commit>=2.20.0",
     "shapely>=2.0",
     "scipy-stubs",
-    { include-group = "tactile" },
+    "hatchling",
 ]
+
+[tool.uv]
+# tactile is only needed by the equivalence tests; `uv sync --no-group tactile` leaves it out.
+default-groups = ["dev", "tactile"]
 
 [build-system]
 requires = ["hatchling"]
