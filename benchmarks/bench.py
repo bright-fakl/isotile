@@ -10,7 +10,7 @@ import time
 
 import numpy as np
 
-from isotile_proto import IsohedralTiling, geometric_adjacency
+from isotile import IsohedralTiling, geometric_adjacency
 
 TYPES = (7, 46, 84)
 HALF_WIDTH_FACTOR = 0.5  # half-width of the square region = factor * sqrt(n * tile area)

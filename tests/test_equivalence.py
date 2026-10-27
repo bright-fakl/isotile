@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from tactile import IsohedralTiling as Tactile
 
-from isotile_proto import IsohedralTiling, get_type, tiling_types
+from isotile import IsohedralTiling, get_type, tiling_types
 
 from .conftest import random_tilings
 

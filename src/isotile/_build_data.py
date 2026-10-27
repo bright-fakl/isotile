@@ -34,7 +34,7 @@ The exported coefficients are derived from Tactile / tactile-js:
     OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
     OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Usage: ``python -m isotile_proto._build_data``.
+Usage: ``python -m isotile._build_data``.
 """
 
 from __future__ import annotations

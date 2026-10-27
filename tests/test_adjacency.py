@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from isotile_proto import IsohedralTiling, geometric_adjacency, get_type, hexagon, square
+from isotile import IsohedralTiling, geometric_adjacency, get_type, hexagon, square
 
 from .conftest import random_tilings
 
