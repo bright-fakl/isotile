@@ -1,0 +1,20 @@
+# Configuration for the prototype only (ruff and pytest); not a package definition.
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["YTT", "S", "B", "A", "C4", "T10", "SIM", "I", "C90", "E", "W", "F", "PGH", "UP", "RUF", "TRY"]
+ignore = ["E501", "E731", "TRY003", "TRY301", "C901"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S311"]
+"bench.py" = ["S101"]
+
+[tool.ruff.format]
+preview = true

@@ -1,0 +1,7 @@
+ type   tiles |  generate lattice adj geom adj (new) | carto generate carto geom adj | speedup of the adjacency step
+IH7      1068 |   0.0054s     0.0015s        0.0087s |          4.70s          0.31s | lattice    208x, vectorized geometric    36x  (carto tiles 1290)
+IH7     10300 |   0.0509s     0.0055s        0.0734s |        590.93s          3.10s | lattice    564x, vectorized geometric    42x  (carto tiles 11019)
+IH46     1024 |   0.0039s     0.0012s        0.0077s |          5.37s          0.44s | lattice    362x, vectorized geometric    57x  (carto tiles 1332)
+IH46    10151 |   0.0316s     0.0036s        0.0588s |        388.75s          3.67s | lattice   1030x, vectorized geometric    62x  (carto tiles 10920)
+IH84     1118 |   0.0038s     0.0009s        0.0087s |          6.03s          0.46s | lattice    518x, vectorized geometric    53x  (carto tiles 1374)
+IH84    10108 |   0.0254s     0.0028s        0.0522s |        344.23s          3.79s | lattice   1363x, vectorized geometric    73x  (carto tiles 10686)
