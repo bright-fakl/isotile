@@ -131,3 +131,29 @@ def test_number_of_edge_shapes_equals_tactile(number):
 
 def test_find_types_equals_tactile_derived_filter():
     assert find_types() == list(tactile.tiling_types)
+
+
+def tactile_outline(ref: Tactile, curves: dict[int, np.ndarray]) -> np.ndarray:
+    """The outline as tactile's edge placements give it (the construction of the tactile-based editors)."""
+    points: list[np.ndarray] = []
+    for s in ref.shapes:
+        curve = curves.get(s.id, np.array([[0.0, 0.0], [1.0, 0.0]]))
+        m = np.array(s.T, dtype=float).reshape(2, 3)
+        placed = curve @ m[:, :2].T + m[:, 2]
+        points.extend((placed[::-1] if s.rev else placed)[:-1])
+    return np.array(points)
+
+
+def test_curved_outline_equals_tactile_placement(number):
+    """Edge placement and reversal: curves on the canonical edge land where tactile's edge transforms put them."""
+    from .conftest import random_valid_curved_tiling
+
+    ours = random_valid_curved_tiling(number, 0, mode="linear")
+    if ours is None:
+        pytest.skip("no curvable edge")
+    ref = Tactile(number)
+    ref.parameters = [float(x) for x in ours.parameters]
+    linear = ours
+    np.testing.assert_allclose(linear.prototile(), tactile_outline(ref, linear.edge_curves), atol=1e-12)
+    for s, info in zip(ref.shapes, linear.edges, strict=True):
+        assert (s.id, bool(s.rev)) == (info.shape_id, info.reversed)

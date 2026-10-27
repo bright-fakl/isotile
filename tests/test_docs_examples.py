@@ -8,7 +8,7 @@ import pytest
 import isotile
 
 DOCS = Path(__file__).parent.parent / "docs"
-PAGES = ["index.md", "quickstart.md", "concepts.md", "adjacency.md", "development.md"]
+PAGES = ["index.md", "quickstart.md", "concepts.md", "curves.md", "adjacency.md", "development.md"]
 FENCE = re.compile(r"^```(\w*)[^\n]*\n(.*?)^```", re.S | re.M)
 
 
@@ -67,6 +67,7 @@ def test_api_reference_lists_every_public_name():
         for page in sorted(api.glob("*.md"))
         for name in re.findall(r"^::: isotile\.(\w+)\s*$", page.read_text(encoding="utf-8"), re.M)
     ]
+    documented = [name for name in documented if name not in {"io", "plot"}]  # submodules, not top-level names
     assert sorted(documented) == sorted(isotile.__all__)
 
 
