@@ -27,8 +27,8 @@ dependencies = [
 
 [project.optional-dependencies]
 shapely = ["shapely>=2.0"]
-plot = []
-all = ["shapely>=2.0"]
+plot = ["matplotlib>=3.7"]
+all = ["shapely>=2.0", "matplotlib>=3.7"]
 
 [project.urls]
 Repository = "https://github.com/bright-fakl/isotile"
@@ -42,6 +42,7 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=2.20.0",
     "shapely>=2.0",
+    "matplotlib>=3.7",
     "scipy-stubs",
     "hatchling",
 ]
@@ -77,13 +78,16 @@ strict = true
 show_error_codes = true
 
 [[tool.mypy.overrides]]
-module = ["tactile.*", "shapely.*"]
+module = ["tactile.*", "shapely.*", "matplotlib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
-markers = ["tactile: compares with the tactile package (installed as a dev dependency only)"]
+markers = [
+    "tactile: compares with the tactile package (installed as a dev dependency only)",
+    "slow: takes several seconds per type (deselect with -m \"not slow\")",
+]
 
 [tool.coverage.run]
 branch = true
