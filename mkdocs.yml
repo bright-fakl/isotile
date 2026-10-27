@@ -21,6 +21,7 @@ nav:
       - Prototile validity: api/prototile.md
       - Adjacency: api/adjacency.md
   - Development: development.md
+  - Branding: branding.md
   - Changelog: changelog.md
 
 plugins:
@@ -46,9 +47,9 @@ plugins:
 
 theme:
   name: material
-  # The logo and the favicon go here once the assets exist in docs/assets/:
-  #   logo: assets/logo/mark-light.svg
-  #   favicon: assets/logo/favicon.svg
+  custom_dir: docs/overrides
+  logo: assets/logo/mark-light.svg
+  favicon: assets/logo/favicon.svg
   features:
     - navigation.tabs
     - navigation.tabs.sticky
@@ -74,6 +75,9 @@ theme:
         name: Switch to light mode
   icon:
     repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/logo.css
 
 extra:
   social:

@@ -1,4 +1,9 @@
-# isotile
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bright-fakl/isotile/main/docs/assets/logo/lockup-dark.svg">
+    <img src="https://raw.githubusercontent.com/bright-fakl/isotile/main/docs/assets/logo/lockup-light.svg" alt="isotile" height="72">
+  </picture>
+</h1>
 
 [![Docs](https://img.shields.io/badge/docs-bright--fakl.github.io%2Fisotile-blue)](https://bright-fakl.github.io/isotile/)
 
