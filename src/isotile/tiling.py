@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from scipy.sparse import csr_array
 
 Bounds = tuple[float, float, float, float]
+_MIN_OVERLAP = 1e-9  # smallest overlap area counted by cover, as a fraction of the tile area
 Array = NDArray[np.float64]
 IntArray = NDArray[np.int64]
 
@@ -298,16 +299,23 @@ class IsohedralTiling:
         return self.tiles(*_with_aspects(origins, self.type.n_aspects))
 
     def cover(self, bounds: Bounds) -> TileSet:
-        """All tiles whose straight-edge polygon intersects the closed rectangle ``bounds``.
+        """All tiles whose straight-edge polygon overlaps the rectangle ``bounds`` with positive area.
 
-        A tile that only touches the rectangle (at a corner, or along an edge of the rectangle) counts as
-        intersecting. The test is exact for any simple polygon, convex or not: after a bounding-box prefilter, a
-        tile intersects the rectangle iff one of its edges meets the rectangle (clipped by the slab method, which
-        covers a vertex inside the rectangle) or a corner of the rectangle lies inside the polygon (the rectangle
-        is inside the tile). The comparisons are in floating point, so contacts that exist only up to rounding
-        errors may fall on either side.
+        A tile that only touches the rectangle at a point or along an edge is not included. The overlap area must
+        exceed ``1e-9`` times the tile area, which separates real overlaps from rounding errors at contacts. The
+        test is exact for any simple polygon, convex or not: after a bounding-box prefilter the polygon is clipped
+        against the four sides of the rectangle (Sutherland-Hodgman, vectorized over the tiles) and the area of
+        the result is measured.
+
+        Raises
+        ------
+        ValueError
+            If the rectangle does not have ``x1 > x0`` and ``y1 > y0`` (a region of zero width or height has no
+            positive-area overlap) or has non-finite bounds.
         """
-        x0, y0, x1, y1 = bounds
+        x0, y0, x1, y1 = (float(b) for b in bounds)
+        if not (x1 > x0 and y1 > y0 and math.isfinite(x1 - x0) and math.isfinite(y1 - y0)):
+            raise ValueError("bounds must be finite with x1 > x0 and y1 > y0")
         corners = self._cell_coordinates(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
         proto = self._cell_coordinates(np.einsum("aij,vj->avi", self._aspects[:, :, :2], self._vertices))
         proto += self._cell_coordinates(self._aspects[:, None, :, 2])
@@ -317,13 +325,13 @@ class IsohedralTiling:
         tiles = self.tiles(*_with_aspects(np.stack([i.ravel(), j.ravel()], axis=1), self.type.n_aspects))
         v = tiles.vertices()
         candidate = (
-            (v[:, :, 0].max(axis=1) >= x0)
-            & (v[:, :, 0].min(axis=1) <= x1)
-            & (v[:, :, 1].max(axis=1) >= y0)
-            & (v[:, :, 1].min(axis=1) <= y1)
+            (v[:, :, 0].max(axis=1) > x0)
+            & (v[:, :, 0].min(axis=1) < x1)
+            & (v[:, :, 1].max(axis=1) > y0)
+            & (v[:, :, 1].min(axis=1) < y1)
         )
         keep = np.zeros(len(tiles), dtype=bool)
-        keep[candidate] = _polygons_meet_rectangle(v[candidate], bounds)
+        keep[candidate] = _overlap_area(v[candidate], (x0, y0, x1, y1)) > _MIN_OVERLAP * self.area
         return tiles.select(keep)
 
     def fill_region(
@@ -348,7 +356,7 @@ class IsohedralTiling:
         The tile area is the area of the straight prototile. The frame of this tiling gives the orientation (its
         linear part is scaled by ``tile_size / sqrt(area)``); its own scale and position are replaced: the type's
         native origin is placed at the center of the region. The result is :meth:`cover` of the region by the
-        resulting tiling (the tiles that intersect the closed region, see :meth:`cover`), available as ``tiles.tiling``.
+        resulting tiling (the tiles that overlap the region with positive area, see :meth:`cover`), available as ``tiles.tiling``.
 
         Raises
         ------
@@ -378,30 +386,35 @@ class IsohedralTiling:
         return self.with_frame(frame).cover((x0, y0, x1, y1))
 
 
-def _polygons_meet_rectangle(polygons: Array, bounds: Bounds) -> NDArray[np.bool_]:
-    """(n,) True where the simple polygon (n, k, 2) intersects the closed rectangle."""
+def _overlap_area(polygons: Array, bounds: Bounds) -> Array:
+    """(n,) area of the intersection of each simple polygon (n, k, 2) with the rectangle.
+
+    Sutherland-Hodgman clipping against the four sides. An edge yields up to two points (the crossing with the
+    side, then its end point); points that are not emitted are replaced by the previous emitted point, which only
+    adds zero-length edges, so all polygons keep a rectangular array. Clipping a non-convex polygon can add edges
+    along the rectangle's sides that enclose no area, so the shoelace area of the result is the area of the
+    intersection.
+    """
     x0, y0, x1, y1 = bounds
-    low, high = np.array([x0, y0]), np.array([x1, y1])
-    start, end = polygons, np.roll(polygons, -1, axis=1)
-    direction = end - start
-    t_low, t_high = np.zeros(start.shape[:2]), np.ones(start.shape[:2])
-    alive = np.ones(start.shape[:2], dtype=bool)
-    for axis in range(2):
-        d, p = direction[..., axis], start[..., axis]
-        parallel = d == 0.0
-        alive &= ~parallel | ((p >= low[axis]) & (p <= high[axis]))
-        safe = np.where(parallel, 1.0, d)
-        ta, tb = (low[axis] - p) / safe, (high[axis] - p) / safe
-        t_low = np.where(parallel, t_low, np.maximum(t_low, np.minimum(ta, tb)))
-        t_high = np.where(parallel, t_high, np.minimum(t_high, np.maximum(ta, tb)))
-    edge_meets = (alive & (t_low <= t_high)).any(axis=1)
-    inside = np.zeros(len(polygons), dtype=bool)
-    for cx, cy in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
-        straddles = (start[..., 1] > cy) != (end[..., 1] > cy)
-        dy = np.where(direction[..., 1] == 0.0, 1.0, direction[..., 1])
-        x_cross = start[..., 0] + (cy - start[..., 1]) * direction[..., 0] / dy
-        inside |= (straddles & (cx < x_cross)).sum(axis=1) % 2 == 1
-    return edge_meets | inside
+    points = polygons
+    alive = np.ones(len(polygons), dtype=bool)
+    for axis, value, sign in ((0, x0, 1.0), (0, x1, -1.0), (1, y0, 1.0), (1, y1, -1.0)):
+        side = sign * (points[..., axis] - value)
+        previous, previous_side = np.roll(points, 1, axis=1), np.roll(side, 1, axis=1)
+        inside, was_inside = side >= 0.0, previous_side >= 0.0
+        crossing = inside != was_inside
+        t = np.where(crossing, previous_side / np.where(crossing, previous_side - side, 1.0), 0.0)
+        crossing_point = previous + t[..., None] * (points - previous)
+        n, m = side.shape
+        emitted = np.stack([crossing_point, points], axis=2).reshape(n, 2 * m, 2)
+        valid = np.stack([crossing, inside], axis=2).reshape(n, 2 * m)
+        alive &= valid.any(axis=1)
+        index = np.maximum.accumulate(np.where(valid, np.arange(2 * m), -1), axis=1)
+        last = index[:, -1:]  # leading gaps take the last emitted point: the polygon is cyclic
+        points = np.take_along_axis(emitted, np.where(index < 0, last, index)[..., None], axis=1)
+    x, y = points[..., 0], points[..., 1]
+    area: Array = 0.5 * np.abs(np.sum(x * np.roll(y, -1, axis=1) - np.roll(x, -1, axis=1) * y, axis=1))
+    return np.where(alive, area, 0.0)
 
 
 def _fit(cls: type[IsohedralTiling], number: int, polygon: ArrayLike) -> IsohedralTiling:

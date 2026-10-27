@@ -1,4 +1,4 @@
-"""cover: a tile is included iff its straight-edge polygon intersects the closed rectangle."""
+"""cover: a tile is included iff its straight-edge polygon overlaps the rectangle with positive area."""
 
 import numpy as np
 import pytest
@@ -20,12 +20,13 @@ def reference(tiling, bounds):
     pad = 4 * np.ptp(tiling.vertices, axis=0).max() + 2 * np.abs(tiling.translations).sum()
     big = tiling.cover((x0 - pad, y0 - pad, x1 + pad, y1 + pad))
     box = shapely.box(x0, y0, x1, y1)
-    hit = shapely.intersects(np.asarray(big.polygons()), box)
+    polygons = np.asarray(big.polygons())
+    hit = shapely.area(shapely.intersection(polygons, box)) > 1e-9 * tiling.area
     return keys(big.select(hit))
 
 
 @pytest.mark.parametrize("seed", range(3))
-def test_cover_equals_shapely_intersects(number, seed):
+def test_cover_equals_shapely_overlap_area(number, seed):
     rng = np.random.default_rng(1000 * seed + number)
     tiling = random_tilings(number, 1, 0.1, seed=seed)[0] if seed and number in (1, 7) else IsohedralTiling(number)
     scale = np.sqrt(tiling.area)
@@ -47,13 +48,24 @@ def test_random_parameters_equal_shapely():
             assert keys(tiling.cover(bounds)) == reference(tiling, bounds)
 
 
-def test_touching_counts_as_intersecting():
+def test_touching_only_is_excluded():
     squares = IsohedralTiling.square()
-    assert len(squares.cover((0.0, 0.0, 1.0, 1.0))) == 9  # the tile and its 8 neighbors touch the closed square
+    assert len(squares.cover((0.0, 0.0, 1.0, 1.0))) == 1  # the neighbors only touch the square
     assert len(squares.cover((0.25, 0.25, 0.75, 0.75))) == 1
-    assert (
-        len(squares.cover((1.0, 0.25, 2.0, 0.75))) == 3
-    )  # both tiles touching along the edge x = 1 and x = 2, and the middle one
+    assert len(squares.cover((1.0, 0.25, 2.0, 0.75))) == 1  # touching along the edges x = 1 and x = 2 does not count
+    assert len(squares.cover((0.0, 0.0, 2.0, 2.0))) == 4
+    assert len(squares.cover((0.5, 0.5, 1.0000001, 1.0))) == 2  # a real overlap of 5e-8 of the neighbor's width
+    hexagons = IsohedralTiling.hexagon(False)  # the tile (0, 0) has its vertex (1, 0) at the left edge of this region
+    tiles = hexagons.cover((1.0, -0.2, 2.0, 0.2))
+    assert not np.any(np.linalg.norm(tiles.centroids, axis=1) < 1e-9)
+    assert len(tiles) > 0
+
+
+def test_degenerate_regions_raise():
+    tiling = IsohedralTiling.square()
+    for bounds in [(0, 0, 0, 1), (0, 0, 1, 0), (1, 0, 0, 1), (0, 1, 1, 0), (0, 0, np.inf, 1), (0, 0, np.nan, 1)]:
+        with pytest.raises(ValueError, match="bounds"):
+            tiling.cover(bounds)
 
 
 def test_rectangle_inside_one_tile_and_region_inside_tile_with_no_vertex_inside():
@@ -68,7 +80,3 @@ def test_cover_never_includes_a_tile_that_misses_the_rectangle():
     tiles = tiling.cover((0.0, 0.0, 3.0, 2.0))
     box = shapely.box(0, 0, 3, 2)
     assert all(p.intersects(box) for p in tiles.polygons())
-
-
-def test_degenerate_point_region():
-    assert len(IsohedralTiling.square().cover((0.2, 0.2, 0.2, 0.2))) == 1

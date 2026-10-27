@@ -9,6 +9,8 @@ All notable changes to isotile are documented here. The format follows
 
 - The 81 isohedral tiling types of tactile as arrays (`TilingType`, `get_type`, `tiling_types`), with `find_types`,
   `TilingType.info()` and `describe()`.
+- `IsohedralTiling.cover` includes a tile iff its polygon overlaps the region with positive area (touching at a point or
+  along an edge does not count; a region of zero width or height raises `ValueError`).
 - `IsohedralTiling` with `fill`, `cover`, `tiles(cell, aspect)` and `fill_region` (tile count or tile size, bounds,
   margin), a public affine `frame`, `prototile(normalized=...)` and `inscribed_radius`.
 - Named constructors `square()`, `hexagon(pointy_top=True)`, `triangle(vertices)` and `quadrilateral(vertices)`.
