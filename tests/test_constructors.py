@@ -49,7 +49,7 @@ def test_square():
     assert t.type.number == 76
     assert same_polygon(t.vertices, np.array([[1.0, 0], [1, 1], [0, 1], [0, 0]]))
     tiles = t.cover((-5, -5, 5, 5))
-    assert len(tiles) == 100
+    assert len(tiles) == 144  # tiles that only touch the closed region count
     inner = np.linalg.norm(tiles.centroids, axis=1) < 3
     assert np.all(np.asarray(tiles.adjacency("edge").sum(axis=1)).ravel()[inner] == 4)
     assert np.all(np.asarray(tiles.adjacency("vertex-only").sum(axis=1)).ravel()[inner] == 4)

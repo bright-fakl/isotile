@@ -250,12 +250,20 @@ class IsohedralTiling:
         return inscribed_circle(self._vertices)[1]
 
     def info(self) -> dict[str, Any]:
-        """Metadata of the type, see :meth:`TilingType.info`."""
-        return self.type.info()
+        """Metadata of the type as in :meth:`TilingType.info`, for the current parameters.
+
+        Adds the key ``parameter_values`` (the current parameters) and, in each entry of ``parameters``, the key
+        ``value``. ``default_parameters`` and ``default`` keep the type's defaults.
+        """
+        info = self.type.info()
+        info["parameter_values"] = self._parameters.tolist()
+        for entry, value in zip(info["parameters"], self._parameters.tolist(), strict=True):
+            entry["value"] = value
+        return info
 
     def describe(self) -> str:
-        """Human-readable summary of the type, see :meth:`TilingType.describe`."""
-        return self.type.describe()
+        """Human-readable summary of the type with the current parameter values, see :meth:`TilingType.describe`."""
+        return self.type.describe(self._parameters)
 
     # -- tile generation -------------------------------------------------------------------------
 
@@ -290,7 +298,15 @@ class IsohedralTiling:
         return self.tiles(*_with_aspects(origins, self.type.n_aspects))
 
     def cover(self, bounds: Bounds) -> TileSet:
-        """All tiles whose bounding box overlaps the rectangle (tiles that only touch its boundary are excluded)."""
+        """All tiles whose straight-edge polygon intersects the closed rectangle ``bounds``.
+
+        A tile that only touches the rectangle (at a corner, or along an edge of the rectangle) counts as
+        intersecting. The test is exact for any simple polygon, convex or not: after a bounding-box prefilter, a
+        tile intersects the rectangle iff one of its edges meets the rectangle (clipped by the slab method, which
+        covers a vertex inside the rectangle) or a corner of the rectangle lies inside the polygon (the rectangle
+        is inside the tile). The comparisons are in floating point, so contacts that exist only up to rounding
+        errors may fall on either side.
+        """
         x0, y0, x1, y1 = bounds
         corners = self._cell_coordinates(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
         proto = self._cell_coordinates(np.einsum("aij,vj->avi", self._aspects[:, :, :2], self._vertices))
@@ -300,12 +316,14 @@ class IsohedralTiling:
         i, j = np.meshgrid(np.arange(lo[0], hi[0] + 1), np.arange(lo[1], hi[1] + 1), indexing="ij")
         tiles = self.tiles(*_with_aspects(np.stack([i.ravel(), j.ravel()], axis=1), self.type.n_aspects))
         v = tiles.vertices()
-        keep = (
-            (v[:, :, 0].max(axis=1) > x0)
-            & (v[:, :, 0].min(axis=1) < x1)
-            & (v[:, :, 1].max(axis=1) > y0)
-            & (v[:, :, 1].min(axis=1) < y1)
+        candidate = (
+            (v[:, :, 0].max(axis=1) >= x0)
+            & (v[:, :, 0].min(axis=1) <= x1)
+            & (v[:, :, 1].max(axis=1) >= y0)
+            & (v[:, :, 1].min(axis=1) <= y1)
         )
+        keep = np.zeros(len(tiles), dtype=bool)
+        keep[candidate] = _polygons_meet_rectangle(v[candidate], bounds)
         return tiles.select(keep)
 
     def fill_region(
@@ -330,7 +348,7 @@ class IsohedralTiling:
         The tile area is the area of the straight prototile. The frame of this tiling gives the orientation (its
         linear part is scaled by ``tile_size / sqrt(area)``); its own scale and position are replaced: the type's
         native origin is placed at the center of the region. The result is :meth:`cover` of the region by the
-        resulting tiling, available as ``tiles.tiling``.
+        resulting tiling (the tiles that intersect the closed region, see :meth:`cover`), available as ``tiles.tiling``.
 
         Raises
         ------
@@ -358,6 +376,32 @@ class IsohedralTiling:
         factor = size / math.sqrt(self.area)
         frame = np.column_stack([factor * self._frame[:2, :2], [(x0 + x1) / 2.0, (y0 + y1) / 2.0]])
         return self.with_frame(frame).cover((x0, y0, x1, y1))
+
+
+def _polygons_meet_rectangle(polygons: Array, bounds: Bounds) -> NDArray[np.bool_]:
+    """(n,) True where the simple polygon (n, k, 2) intersects the closed rectangle."""
+    x0, y0, x1, y1 = bounds
+    low, high = np.array([x0, y0]), np.array([x1, y1])
+    start, end = polygons, np.roll(polygons, -1, axis=1)
+    direction = end - start
+    t_low, t_high = np.zeros(start.shape[:2]), np.ones(start.shape[:2])
+    alive = np.ones(start.shape[:2], dtype=bool)
+    for axis in range(2):
+        d, p = direction[..., axis], start[..., axis]
+        parallel = d == 0.0
+        alive &= ~parallel | ((p >= low[axis]) & (p <= high[axis]))
+        safe = np.where(parallel, 1.0, d)
+        ta, tb = (low[axis] - p) / safe, (high[axis] - p) / safe
+        t_low = np.where(parallel, t_low, np.maximum(t_low, np.minimum(ta, tb)))
+        t_high = np.where(parallel, t_high, np.minimum(t_high, np.maximum(ta, tb)))
+    edge_meets = (alive & (t_low <= t_high)).any(axis=1)
+    inside = np.zeros(len(polygons), dtype=bool)
+    for cx, cy in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+        straddles = (start[..., 1] > cy) != (end[..., 1] > cy)
+        dy = np.where(direction[..., 1] == 0.0, 1.0, direction[..., 1])
+        x_cross = start[..., 0] + (cy - start[..., 1]) * direction[..., 0] / dy
+        inside |= (straddles & (cx < x_cross)).sum(axis=1) % 2 == 1
+    return edge_meets | inside
 
 
 def _fit(cls: type[IsohedralTiling], number: int, polygon: ArrayLike) -> IsohedralTiling:

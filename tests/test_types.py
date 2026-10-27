@@ -63,11 +63,32 @@ def test_info_equals_carto_flow(number):
 @pytest.mark.parametrize("number", [int(n) for n in EXPECTED["describe"]])
 def test_describe_equals_carto_flow(number):
     assert get_type(number).describe() == EXPECTED["describe"][str(number)]
-    assert IsohedralTiling(number).describe() == EXPECTED["describe"][str(number)]
 
 
-def test_tiling_info_is_the_type_info():
-    assert IsohedralTiling(7).info() == get_type(7).info()
+def test_tiling_describe_shows_the_current_values():
+    tiling = IsohedralTiling(7, [0.62, 0.21])
+    text = tiling.describe()
+    assert "[0] value=0.62 (default 0.6)" in text
+    assert "[1] value=0.21 (default 0.1964)" in text
+    assert text.splitlines()[0] == get_type(7).describe().splitlines()[0]
+    assert IsohedralTiling(84).describe().count("value=") == 2
+    assert "value=" not in get_type(7).describe()
+    assert "Parameters: none" in IsohedralTiling(76).describe()
+
+
+def test_tiling_info_describes_the_instance():
+    tiling = IsohedralTiling(7, [0.62, 0.21], frame=[[2, 0, 1], [0, 2, 1]])
+    info, type_info = tiling.info(), get_type(7).info()
+    assert set(info) == set(type_info) | {"parameter_values"}
+    assert info["parameter_values"] == [0.62, 0.21]
+    assert info["default_parameters"] == type_info["default_parameters"] == [0.6, pytest.approx(0.196416770201)]
+    assert [p["value"] for p in info["parameters"]] == [0.62, 0.21]
+    assert [p["default"] for p in info["parameters"]] == [p["default"] for p in type_info["parameters"]]
+    for key in set(type_info) - {"parameters"}:
+        assert info[key] == type_info[key]
+    assert "parameter_values" not in type_info
+    assert all("value" not in p for p in type_info["parameters"])
+    assert IsohedralTiling(7).info()["parameter_values"] == IsohedralTiling(7).info()["default_parameters"]
 
 
 def test_affected_vertices_follow_the_coefficients_exactly(number):

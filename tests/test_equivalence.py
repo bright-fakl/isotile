@@ -97,25 +97,6 @@ def test_fill_is_deduplicated_and_larger_than_zero(number):
     assert len(np.unique(np.column_stack([tiles.cell, tiles.aspect]), axis=0)) == len(tiles)
 
 
-def test_cover_contains_every_tile_meeting_the_rectangle(number):
-    ours = IsohedralTiling(number)
-    bounds = (-1.3, -0.9, 4.2, 3.7)
-    covered = ours.cover(bounds)
-    big = ours.cover((-30, -30, 30, 30))
-    v = big.vertices()
-    meets = (
-        (v[:, :, 0].max(axis=1) > bounds[0])
-        & (v[:, :, 0].min(axis=1) < bounds[2])
-        & (v[:, :, 1].max(axis=1) > bounds[1])
-        & (v[:, :, 1].min(axis=1) < bounds[3])
-    )
-
-    def keys(tiles):
-        return {tuple(r) for r in np.column_stack([tiles.cell, tiles.aspect]).tolist()}
-
-    assert keys(big.select(meets)) == keys(covered)
-
-
 def test_colors_equal_tactile(number):
     ref = Tactile(number)
     cells = [(a, b) for a in range(-4, 5) for b in range(-4, 5) for _ in range(ref.num_aspects)]

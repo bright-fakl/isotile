@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 DATA_FILE = Path(__file__).parent / "data" / "types.npz"
 EDGE_SHAPES = ("J", "U", "S", "I")  # index = code stored in the data file
@@ -53,11 +53,13 @@ class TilingType:
         for a shared vertex only.
     safe_ranges : (n_params, 2)
         Per free parameter, the interval ``[low, high]`` around the default value in which the straight
-        prototile stays simple while all other parameters keep their defaults. This is a one-parameter slice,
+        prototile stays simple while all other parameters keep their defaults: the interval is the contiguous
+        one around the default with the other parameters at their defaults; an infinite end (``-inf`` or ``inf``)
+        means no limit. This is a one-parameter slice,
         not the valid region: combinations of parameters inside their intervals can still be invalid (use
         :func:`isotile.check_prototile`), and values outside an interval can be valid when other parameters change.
-        An interval ends where the prototile becomes invalid (the end is rounded inward to a multiple of 1e-6 of
-        the distance from the default) or at a distance of 5 from the default. Beyond a degenerate value the
+        A finite end is where the prototile becomes invalid (rounded inward to a multiple of 1e-6 of the distance
+        from the default). Beyond a degenerate value the
         prototile can be valid again (a vertex passing through another one), but that is another component of
         the valid set.
     """
@@ -149,17 +151,25 @@ class TilingType:
             "parameters": parameters,
         }
 
-    def describe(self) -> str:
-        """Multi-line human-readable summary of the type."""
+    def describe(self, parameters: ArrayLike | None = None) -> str:
+        """Multi-line human-readable summary of the type.
+
+        With ``parameters`` (``n_params`` values) each parameter line shows its value next to the default.
+        """
         info = self.info()
         lines = [f"IH{self.number} — Isohedral Tiling Type {self.number}"]
         if info["num_parameters"] == 0:
             lines.append("  Parameters: none (fixed shape)")
         else:
             lines.append(f"  Parameters: {info['num_parameters']} free")
-            lines.extend(
-                f"    [{p['index']}] default={p['default']:.4g}  — {p['description']}" for p in info["parameters"]
-            )
+            values = None if parameters is None else np.asarray(parameters, dtype=float)
+            for p in info["parameters"]:
+                shown = (
+                    f"default={p['default']:.4g}"
+                    if values is None
+                    else f"value={values[p['index']]:.4g} (default {p['default']:.4g})"
+                )
+                lines.append(f"    [{p['index']}] {shown}  — {p['description']}")
         lines.append(f"  Prototile: {info['num_vertices']} vertices, {info['num_vertices']} edges")
         reflections = "with reflections" if info["has_reflections"] else "no reflections"
         lines.append(f"  Aspects: {info['num_aspects']} ({reflections})")
