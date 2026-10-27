@@ -4,21 +4,25 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from .adjacency import lattice_adjacency
+from .adjacency import AdjacencyKind, lattice_adjacency
+from .prototile import check_prototile, inscribed_circle, polygon_area, polygon_centroid
 from .types import TilingType, get_type
 
 if TYPE_CHECKING:
     from scipy.sparse import csr_array
 
 Bounds = tuple[float, float, float, float]
-AdjacencyKind = Literal["edge", "vertex", "vertex-only"]
+Array = NDArray[np.float64]
+IntArray = NDArray[np.int64]
 
-# Tactile's four edge orientation matrices (identity, rotate, flip, rotate+flip), index 2 * flip + rotate.
+SQUARE, HEXAGON, TRIANGLE, QUADRILATERAL = 76, 20, 84, 46  # types of the named constructors
+
+# The four edge orientation matrices (identity, rotate, flip, rotate + flip), index 2 * flip + rotate.
 _ORIENTS = np.array(
     [
         [[1, 0, 0], [0, 1, 0]],
@@ -30,7 +34,7 @@ _ORIENTS = np.array(
 )
 
 
-def _homogeneous(m: NDArray[np.float64]) -> NDArray[np.float64]:
+def _homogeneous(m: Array) -> Array:
     """(..., 2, 3) -> (..., 3, 3)."""
     out = np.zeros((*m.shape[:-2], 3, 3))
     out[..., :2, :] = m
@@ -38,165 +42,263 @@ def _homogeneous(m: NDArray[np.float64]) -> NDArray[np.float64]:
     return out
 
 
-def _is_simple(v: NDArray[np.float64]) -> bool:
-    """True if the closed polygon with vertices ``v`` has no crossing or touching non-adjacent edges."""
-    n = len(v)
-    a, b = v, np.roll(v, -1, axis=0)
-    i, j = np.triu_indices(n, 2)
-    keep = ~((i == 0) & (j == n - 1))
-    i, j = i[keep], j[keep]
-
-    def side(p, q, r):
-        c = (q[:, 0] - p[:, 0]) * (r[:, 1] - p[:, 1]) - (q[:, 1] - p[:, 1]) * (r[:, 0] - p[:, 0])
-        return np.where(np.abs(c) < 1e-12, 0.0, np.sign(c))
-
-    d1, d2 = side(a[i], b[i], a[j]), side(a[i], b[i], b[j])
-    d3, d4 = side(a[j], b[j], a[i]), side(a[j], b[j], b[i])
-    return not np.any((d1 * d2 <= 0) & (d3 * d4 <= 0))
+def _similarity(z: complex, t: complex) -> Array:
+    """(2, 3) matrix of x -> z * x + t on points written as complex numbers."""
+    return np.array([[z.real, -z.imag, t.real], [z.imag, z.real, t.imag]])
 
 
 class IsohedralTiling:
-    """One of the 81 isohedral types at given parameters.
+    """One of the 81 isohedral types at given parameters, placed by an affine frame.
+
+    A tile is identified by its cell ``(u, v)``, the parallelogram of the lattice spanned by
+    :attr:`translation_u` and :attr:`translation_v`, and its aspect, the index of the tile within the cell.
 
     Parameters
     ----------
     tiling_type : int or TilingType
     parameters : array-like, optional
-        ``n_params`` values; the type's defaults when omitted. Any real values are accepted as long as the
-        prototile is a simple polygon (the data carries no valid ranges).
+        ``n_params`` values; the type's defaults when omitted. Any finite values for which the straight prototile
+        is a valid simple polygon are accepted (see :func:`isotile.check_prototile`).
     frame : (2, 3) array-like, optional
-        Affine map applied to the native geometry (vertices, translation vectors, aspects, edges). Used to
-        scale, rotate or reflect the tiling, e.g. a pointy-top hexagon.
+        Affine map from the type's native coordinates to world coordinates, applied to the vertices, translation
+        vectors, aspects and edges. Identity when omitted.
+
+    Raises
+    ------
+    ValueError
+        If the type, the number of parameters or the frame is invalid, or if the prototile is not valid. The
+        parameter setter keeps the previous state in that case.
     """
 
+    _vertices: Array
+    _aspects: Array
+    _translations: Array
+    _edges: Array
+
     def __init__(
-        self, tiling_type: int | TilingType, parameters: ArrayLike | None = None, frame: ArrayLike | None = None
+        self, tiling_type: int | TilingType, parameters: ArrayLike | None = None, *, frame: ArrayLike | None = None
     ) -> None:
         self.type = tiling_type if isinstance(tiling_type, TilingType) else get_type(tiling_type)
-        self._frame = _homogeneous(np.asarray(np.eye(3)[:2] if frame is None else frame, dtype=float))
-        self._parameters = np.empty(0)
+        f = np.asarray(np.eye(3)[:2] if frame is None else frame, dtype=float)
+        if f.shape != (2, 3) or not np.all(np.isfinite(f)):
+            raise ValueError(f"frame must be a finite (2, 3) array, got shape {f.shape}")
+        if abs(np.linalg.det(f[:, :2])) <= 1e-12 * float(np.abs(f[:, :2]).max()) ** 2:
+            raise ValueError("the linear part of the frame is singular")
+        self._frame = _homogeneous(f)
+        self._parameters: Array = np.empty(0)
         self.parameters = self.type.default_params if parameters is None else parameters
 
+    # -- named constructors ----------------------------------------------------------------------
+
+    @classmethod
+    def square(cls) -> IsohedralTiling:
+        """Unit squares (type 76); the tile ``(0, 0)`` is ``[0, 1] x [0, 1]``."""
+        return cls(SQUARE)
+
+    @classmethod
+    def hexagon(cls, pointy_top: bool = True) -> IsohedralTiling:
+        """Regular hexagons with circumradius 1 (type 20), centered at the origin for the tile ``(0, 0)``.
+
+        With ``pointy_top`` the tiles have a vertex at the top; otherwise they are flat-top (a vertex at angle 0).
+        """
+        frame = _similarity(complex(math.cos(math.pi / 6), math.sin(math.pi / 6)) if pointy_top else 1.0, 0.0)
+        return cls(HEXAGON, frame=frame)
+
+    @classmethod
+    def triangle(cls, vertices: ArrayLike | None = None) -> IsohedralTiling:
+        """Tiling by copies of a triangle that are related by point reflections about the edge midpoints (type 84).
+
+        ``vertices`` is any triangle as 3 points; the prototile equals it (up to the starting vertex and the
+        orientation, which is counterclockwise). The default is the equilateral triangle with side 1.
+        """
+        default = [[0.0, 0.0], [1.0, 0.0], [0.5, math.sqrt(3.0) / 2.0]]
+        return _fit(cls, TRIANGLE, default if vertices is None else vertices)
+
+    @classmethod
+    def quadrilateral(cls, vertices: ArrayLike | None = None) -> IsohedralTiling:
+        """Tiling by copies of a quadrilateral related by point reflections about the edge midpoints (type 46).
+
+        ``vertices`` is any simple quadrilateral as 4 points, convex or not; the prototile equals it (up to the
+        starting vertex and the orientation, which is counterclockwise). The default is the unit square.
+        A self-intersecting quadrilateral raises ``ValueError``.
+        """
+        default = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
+        return _fit(cls, QUADRILATERAL, default if vertices is None else vertices)
+
+    # -- frame -----------------------------------------------------------------------------------
+
     @property
-    def frame(self) -> NDArray[np.float64]:
+    def frame(self) -> Array:
         """(2, 3) affine map from native to world coordinates."""
         return self._frame[:2].copy()
 
+    def with_frame(self, frame: ArrayLike) -> IsohedralTiling:
+        """The same type and parameters with the frame replaced."""
+        return IsohedralTiling(self.type, self._parameters, frame=frame)
+
+    def _after(self, m: Array) -> IsohedralTiling:
+        return self.with_frame((_homogeneous(m) @ self._frame)[:2])
+
+    def rotated(self, angle_degrees: float) -> IsohedralTiling:
+        """A copy rotated counterclockwise about the world origin."""
+        a = math.radians(angle_degrees)
+        return self._after(_similarity(complex(math.cos(a), math.sin(a)), 0.0))
+
+    def scaled(self, factor: float) -> IsohedralTiling:
+        """A copy scaled about the world origin."""
+        return self._after(_similarity(complex(factor), 0.0))
+
+    # -- parameters and geometry -----------------------------------------------------------------
+
     @property
-    def parameters(self) -> NDArray[np.float64]:
+    def parameters(self) -> Array:
         return self._parameters.copy()
 
     @parameters.setter
     def parameters(self, value: ArrayLike) -> None:
         p = np.asarray(value, dtype=float)
-        if p.shape != (self.type.n_params,):
-            raise ValueError(f"IH{self.type.number} takes {self.type.n_params} parameters, got shape {p.shape}")
-        if not np.all(np.isfinite(p)):
-            raise ValueError("parameters must be finite")
+        report = check_prototile(self.type, p)
+        if not report.valid:
+            raise ValueError(f"IH{self.type.number}: invalid prototile for parameters {p.tolist()}: {report.message}")
         self._set(p)
 
-    def _set(self, p: NDArray[np.float64]) -> None:
-        """Derive vertices, aspects, translations and edge transforms; keep the old state if invalid."""
+    def _set(self, p: Array) -> None:
+        """Derive vertices, aspects, translations and edge transforms."""
         t, f = self.type, self._frame
         p1 = np.append(p, 1.0)
         v = t.vertex_coeffs @ p1
-        edge_len = np.linalg.norm(np.roll(v, -1, axis=0) - v, axis=1)
-        x, y = v[:, 0], v[:, 1]
-        area = 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
-        scale = edge_len.max()
-        if edge_len.min() < 1e-9 * max(scale, 1.0) or abs(area) < 1e-9 * scale**2 or not _is_simple(v):
-            raise ValueError(f"IH{t.number}: parameters {p.tolist()} give a degenerate or self-intersecting tile")
         w = np.roll(v, -1, axis=0)
-        seg = np.zeros((t.n_vertices, 3, 3))  # tactile's matchSeg: unit edge (0,0)-(1,0) -> v[i]-v[i+1]
+        seg = np.zeros((t.n_vertices, 3, 3))  # unit edge (0,0)-(1,0) -> v[i]-v[i+1]
         seg[:, 0] = np.stack([w[:, 0] - v[:, 0], v[:, 1] - w[:, 1], v[:, 0]], axis=1)
         seg[:, 1] = np.stack([w[:, 1] - v[:, 1], w[:, 0] - v[:, 0], v[:, 1]], axis=1)
         seg[:, 2, 2] = 1.0
         orient = _homogeneous(_ORIENTS[2 * t.edge_orientations[:, 0] + t.edge_orientations[:, 1]])
-        finv = np.linalg.inv(f)
         self._parameters = p
         self._vertices = v @ f[:2, :2].T + f[:2, 2]
-        self._aspects = (f @ _homogeneous(t.aspect_coeffs @ p1) @ finv)[:, :2]
+        self._aspects = (f @ _homogeneous(t.aspect_coeffs @ p1) @ np.linalg.inv(f))[:, :2]
         self._translations = (t.translation_coeffs @ p1) @ f[:2, :2].T
         self._edges = (f @ seg @ orient)[:, :2]
 
     @property
-    def vertices(self) -> NDArray[np.float64]:
+    def vertices(self) -> Array:
         """(n_vertices, 2) prototile vertices."""
         return self._vertices.copy()
 
     @property
-    def aspects(self) -> NDArray[np.float64]:
+    def aspects(self) -> Array:
         """(n_aspects, 2, 3) affine transforms of the aspects."""
         return self._aspects.copy()
 
     @property
-    def t1(self) -> NDArray[np.float64]:
-        return self._translations[0].copy()
+    def translations(self) -> Array:
+        """(2, 2) lattice translation vectors; row k is vector k."""
+        return self._translations.copy()
 
     @property
-    def t2(self) -> NDArray[np.float64]:
-        return self._translations[1].copy()
+    def translation_u(self) -> Array:
+        """First lattice translation vector."""
+        return np.array(self._translations[0], dtype=float)
 
     @property
-    def edge_transforms(self) -> NDArray[np.float64]:
+    def translation_v(self) -> Array:
+        """Second lattice translation vector."""
+        return np.array(self._translations[1], dtype=float)
+
+    @property
+    def edge_transforms(self) -> Array:
         """(n_vertices, 2, 3) maps of the canonical edge ``(0, 0)-(1, 0)`` onto each prototile edge."""
         return self._edges.copy()
 
     @property
     def edge_reversed(self) -> NDArray[np.bool_]:
         """(n_vertices,) True where the edge is traversed against its shape direction (flip != rotate)."""
-        return self.type.edge_orientations[:, 0] != self.type.edge_orientations[:, 1]
+        reversed_: NDArray[np.bool_] = self.type.edge_orientations[:, 0] != self.type.edge_orientations[:, 1]
+        return reversed_
 
     @property
-    def centroid(self) -> NDArray[np.float64]:
-        """Area centroid of the straight-edge prototile."""
-        v, w = self._vertices, np.roll(self._vertices, -1, axis=0)
-        cross = v[:, 0] * w[:, 1] - w[:, 0] * v[:, 1]
-        return ((v + w) * cross[:, None]).sum(axis=0) / (3.0 * cross.sum())
+    def edge_shape_ids(self) -> IntArray:
+        """(n_vertices,) id of the shape of each edge; edges with the same id have the same shape."""
+        return self.type.edge_shape_ids.copy()
+
+    @property
+    def edge_shapes(self) -> tuple[str, ...]:
+        """Shape of each edge: ``"I"`` (straight), ``"J"``, ``"U"`` or ``"S"``."""
+        return self.type.edge_shapes
 
     @property
     def area(self) -> float:
-        v, w = self._vertices, np.roll(self._vertices, -1, axis=0)
-        return float(abs(0.5 * np.sum(v[:, 0] * w[:, 1] - w[:, 0] * v[:, 1])))
+        """Area of the straight prototile."""
+        return abs(polygon_area(self._vertices))
+
+    @property
+    def centroid(self) -> Array:
+        """Area centroid of the straight prototile."""
+        return polygon_centroid(self._vertices)
+
+    def prototile(self, normalized: bool = False) -> Array:
+        """(n_vertices, 2) closed outline of the straight prototile, without the repeated first point.
+
+        With ``normalized`` the outline is translated so that its centroid is at the origin and scaled to unit area.
+        """
+        if not normalized:
+            return self.vertices
+        return (self._vertices - self.centroid) / math.sqrt(self.area)
+
+    @property
+    def inscribed_radius(self) -> float:
+        """Radius of the largest circle inside the straight prototile (to a relative accuracy of 1e-10)."""
+        return inscribed_circle(self._vertices)[1]
+
+    def info(self) -> dict[str, Any]:
+        """Metadata of the type, see :meth:`TilingType.info`."""
+        return self.type.info()
+
+    def describe(self) -> str:
+        """Human-readable summary of the type, see :meth:`TilingType.describe`."""
+        return self.type.describe()
 
     # -- tile generation -------------------------------------------------------------------------
 
-    def tiles(self, lattice: ArrayLike) -> TileSet:
-        """Tiles for explicit lattice coordinates ``(t1, t2, aspect)``, shape (n, 3)."""
-        lat = np.asarray(lattice, dtype=np.int64).reshape(-1, 3)
-        m = self._aspects[lat[:, 2]].copy()
-        m[:, :, 2] += lat[:, :1] * self._translations[0] + lat[:, 1:2] * self._translations[1]
-        return TileSet(self, lat, m)
+    def tiles(self, cell: ArrayLike, aspect: ArrayLike) -> TileSet:
+        """Tiles with the given cells ``(u, v)``, shape (n, 2), and aspects, shape (n,) or a single value."""
+        cells = np.asarray(cell, dtype=np.int64).reshape(-1, 2)
+        aspects = np.broadcast_to(np.asarray(aspect, dtype=np.int64), (len(cells),)).copy()
+        if len(aspects) and (aspects.min() < 0 or aspects.max() >= self.type.n_aspects):
+            raise ValueError(f"aspect must be in [0, {self.type.n_aspects})")
+        m = self._aspects[aspects].copy()
+        m[:, :, 2] += cells[:, :1] * self._translations[0] + cells[:, 1:2] * self._translations[1]
+        return TileSet(self, cells, aspects, m)
 
-    def _lattice_coords(self, points: NDArray[np.float64]) -> NDArray[np.float64]:
-        """Coordinates of world points in the (t1, t2) basis."""
-        return points @ np.linalg.inv(self._translations)
+    def _cell_coordinates(self, points: Array) -> Array:
+        """Coordinates of world points in the basis of the translation vectors."""
+        coordinates: Array = points @ np.linalg.inv(self._translations)
+        return coordinates
 
     def fill(self, bounds: Bounds) -> TileSet:
-        """Tiles generated by tactile's scanline fill of the rectangle, in tactile's order, without repeats.
+        """Tiles generated by the scanline fill of the rectangle, in scanline order, without repeats.
 
-        Every lattice point ``(t1, t2)`` whose image lies in the rectangle (floor on the lower side, 1e-7 slack
-        on the upper side, one extra row at the top) contributes all its aspects. Tiles near the boundary may
-        reach outside the rectangle and tiles outside it may reach in; use :meth:`cover` for exact coverage.
+        Every cell whose origin lies in the rectangle (floor on the lower side, 1e-7 slack on the upper side, one
+        extra row at the top) contributes all its aspects. Tiles near the boundary may reach outside the
+        rectangle and tiles outside it may reach in; use :meth:`cover` for exact coverage.
         """
         x0, y0, x1, y1 = bounds
-        pts = self._lattice_coords(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
-        t1, t2 = self._translations
-        if t1[0] * t2[1] - t2[0] * t1[1] < 0.0:
+        pts = self._cell_coordinates(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
+        u, v = self._translations
+        if u[0] * v[1] - v[0] * u[1] < 0.0:
             pts[[1, 3]] = pts[[3, 1]]
-        lat = _scanline_points(pts)
-        return self.tiles(_with_aspects(lat, self.type.n_aspects))
+        origins = _scanline_cells(pts)
+        return self.tiles(*_with_aspects(origins, self.type.n_aspects))
 
     def cover(self, bounds: Bounds) -> TileSet:
-        """All tiles whose bounding box overlaps the rectangle."""
+        """All tiles whose bounding box overlaps the rectangle (tiles that only touch its boundary are excluded)."""
         x0, y0, x1, y1 = bounds
-        corners = self._lattice_coords(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
-        proto = self._lattice_coords(np.einsum("aij,vj->avi", self._aspects[:, :, :2], self._vertices))
-        proto += self._lattice_coords(self._aspects[:, None, :, 2])
+        corners = self._cell_coordinates(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
+        proto = self._cell_coordinates(np.einsum("aij,vj->avi", self._aspects[:, :, :2], self._vertices))
+        proto += self._cell_coordinates(self._aspects[:, None, :, 2])
         lo = np.floor(corners.min(axis=0) - proto.max(axis=(0, 1))).astype(np.int64)
         hi = np.ceil(corners.max(axis=0) - proto.min(axis=(0, 1))).astype(np.int64)
         i, j = np.meshgrid(np.arange(lo[0], hi[0] + 1), np.arange(lo[1], hi[1] + 1), indexing="ij")
-        tiles = self.tiles(_with_aspects(np.stack([i.ravel(), j.ravel()], axis=1), self.type.n_aspects))
+        tiles = self.tiles(*_with_aspects(np.stack([i.ravel(), j.ravel()], axis=1), self.type.n_aspects))
         v = tiles.vertices()
         keep = (
             (v[:, :, 0].max(axis=1) > x0)
@@ -206,23 +308,101 @@ class IsohedralTiling:
         )
         return tiles.select(keep)
 
+    def fill_region(
+        self,
+        bounds: Bounds,
+        *,
+        n_tiles: int | None = None,
+        tile_size: float | None = None,
+        margin: float = 0.0,
+    ) -> TileSet:
+        """Tiles that cover a region, with the tile size set by a tile count or given directly.
 
-def _with_aspects(points: NDArray[np.int64], n_aspects: int) -> NDArray[np.int64]:
-    """(m, 2) lattice points -> (m * n_aspects, 3) rows ``(t1, t2, aspect)``."""
-    rep = np.repeat(points, n_aspects, axis=0)
-    return np.column_stack([rep, np.tile(np.arange(n_aspects), len(points))])
+        The region is ``bounds = (x0, y0, x1, y1)`` expanded on every side by ``margin`` times its width (left and
+        right) or height (top and bottom). Give exactly one of:
+
+        ``n_tiles``
+            Target number of tiles. The tile size is ``sqrt(region_area / n_tiles)``, so the tiles that fit into the
+            area have that count; the tiles along the boundary that reach into the region come on top.
+        ``tile_size``
+            Square root of the area of one tile.
+
+        The tile area is the area of the straight prototile. The frame of this tiling gives the orientation (its
+        linear part is scaled by ``tile_size / sqrt(area)``); its own scale and position are replaced: the type's
+        native origin is placed at the center of the region. The result is :meth:`cover` of the region by the
+        resulting tiling, available as ``tiles.tiling``.
+
+        Raises
+        ------
+        ValueError
+            If both or neither of ``n_tiles`` and ``tile_size`` are given, if a value is not positive, if the
+            bounds are empty or if ``margin <= -0.5``.
+        """
+        if (n_tiles is None) == (tile_size is None):
+            raise ValueError("give exactly one of n_tiles and tile_size")
+        if not margin > -0.5:
+            raise ValueError("margin must be greater than -0.5")
+        x0, y0, x1, y1 = (float(b) for b in bounds)
+        width, height = x1 - x0, y1 - y0
+        if not (width > 0.0 and height > 0.0 and math.isfinite(width * height)):
+            raise ValueError("bounds must be finite with x1 > x0 and y1 > y0")
+        x0, y0, x1, y1 = x0 - width * margin, y0 - height * margin, x1 + width * margin, y1 + height * margin
+        if tile_size is None:
+            if n_tiles is None or not n_tiles > 0:
+                raise ValueError("n_tiles must be positive")
+            size = math.sqrt((x1 - x0) * (y1 - y0) / n_tiles)
+        else:
+            if not (tile_size > 0.0 and math.isfinite(tile_size)):
+                raise ValueError("tile_size must be positive and finite")
+            size = float(tile_size)
+        factor = size / math.sqrt(self.area)
+        frame = np.column_stack([factor * self._frame[:2, :2], [(x0 + x1) / 2.0, (y0 + y1) / 2.0]])
+        return self.with_frame(frame).cover((x0, y0, x1, y1))
 
 
-def _scanline_points(pts: NDArray[np.float64]) -> NDArray[np.int64]:
-    """Port of tactile's ``_fill_region_quad`` on lattice-space corners ``pts`` (A, B, C, D), without repeats."""
-    chunks: list[NDArray[np.int64]] = []
+def _fit(cls: type[IsohedralTiling], number: int, polygon: ArrayLike) -> IsohedralTiling:
+    """Type ``number`` whose prototile is ``polygon`` (a similar copy by the parameters, then a similarity frame)."""
+    tt = get_type(number)
+    pts = np.asarray(polygon, dtype=float)
+    if pts.shape != (tt.n_vertices, 2) or not np.all(np.isfinite(pts)):
+        raise ValueError(f"IH{number} needs {tt.n_vertices} finite vertices, got shape {pts.shape}")
+    if polygon_area(pts) < 0:
+        pts = pts[::-1]  # the prototile is counterclockwise
+    lengths = np.linalg.norm(np.roll(pts, -1, axis=0) - pts, axis=1)
+    if lengths.max() == 0.0:
+        raise ValueError("the polygon has no extent")
+    pts = np.roll(pts, -int(np.argmax(lengths)), axis=0)  # longest edge first keeps the parameters moderate
+    const = tt.vertex_coeffs[:, :, -1]
+    if np.any(tt.vertex_coeffs[:2, :, :-1]):
+        raise ValueError(f"IH{number}: the first edge depends on the parameters")
+    p = pts[:, 0] + 1j * pts[:, 1]
+    n = const[:, 0] + 1j * const[:, 1]
+    z = (n[1] - n[0]) / (p[1] - p[0])  # similarity from the polygon to native coordinates
+    w = n[0] - z * p[0]
+    q = z * p[2:] + w
+    a = tt.vertex_coeffs[2:, :, :-1].reshape(-1, tt.n_params)
+    b = (np.column_stack([q.real, q.imag]) - const[2:]).reshape(-1)
+    params, *_ = np.linalg.lstsq(a, b, rcond=None)
+    if not np.allclose(a @ params, b, atol=1e-9):
+        raise ValueError(f"IH{number} cannot express this polygon")
+    return cls(number, params, frame=_similarity(1 / z, -w / z))
+
+
+def _with_aspects(cells: IntArray, n_aspects: int) -> tuple[IntArray, IntArray]:
+    """(m, 2) cells -> cells (m * n_aspects, 2) and aspects (m * n_aspects,), all aspects of each cell."""
+    return np.repeat(cells, n_aspects, axis=0), np.tile(np.arange(n_aspects, dtype=np.int64), len(cells))
+
+
+def _scanline_cells(pts: Array) -> IntArray:
+    """Scanline fill of the quadrilateral ``pts`` (A, B, C, D) given in cell coordinates; cells without repeats."""
+    chunks: list[IntArray] = []
     last_y: float | None = None
 
-    def slope(p, q):
+    def slope(p: Array, q: Array) -> float:
         dy = q[1] - p[1]
-        return (q[0] - p[0]) / dy if dy != 0.0 else 0.0
+        return float((q[0] - p[0]) / dy) if dy != 0.0 else 0.0
 
-    def do_fill(a, b, c, d, do_top):
+    def do_fill(a: Array, b: Array, c: Array, d: Array, do_top: bool) -> None:
         nonlocal last_y
         dx1, dx2 = slope(a, d), slope(b, c)
         ymax = c[1] + (1.0 if do_top else 0.0)
@@ -240,10 +420,10 @@ def _scanline_points(pts: NDArray[np.float64]) -> NDArray[np.int64]:
         chunks.append(np.column_stack([xs, y0 + rows]))
         last_y = y0 + n_rows
 
-    def fix_x(a, b, c, d, do_top):
+    def fix_x(a: Array, b: Array, c: Array, d: Array, do_top: bool) -> None:
         do_fill(*((b, a, d, c) if a[0] > b[0] else (a, b, c, d)), do_top)
 
-    def fix_y(a, b, c, d, do_top):
+    def fix_y(a: Array, b: Array, c: Array, d: Array, do_top: bool) -> None:
         do_fill(*((c, d, a, b) if a[1] > c[1] else (a, b, c, d)), do_top)
 
     a, b, c, d = pts
@@ -268,51 +448,75 @@ def _scanline_points(pts: NDArray[np.float64]) -> NDArray[np.int64]:
             fix_x(bottom, bottom, right, l1, False)
             fix_x(l1, right, r2, left, False)
             fix_x(left, r2, top, top, True)
-    points = np.concatenate(chunks)
-    _, first = np.unique(points, axis=0, return_index=True)
-    return points[np.sort(first)]  # drop repeated points, keep tactile's order of first occurrence
+    cells = np.concatenate(chunks)
+    _, first = np.unique(cells, axis=0, return_index=True)
+    unique: IntArray = cells[np.sort(first)]  # drop repeated cells, keep the order of first occurrence
+    return unique
 
 
-def _at_height(p, q, y):
+def _at_height(p: Array, q: Array, y: float) -> Array:
     t = (y - p[1]) / (q[1] - p[1])
     return np.array([(1.0 - t) * p[0] + t * q[0], y])
 
 
 @dataclass(eq=False)
 class TileSet:
-    """Tiles of a tiling: lattice coordinates ``(t1, t2, aspect)`` and the affine transform of each tile."""
+    """Tiles of a tiling: cell ``(u, v)``, aspect and affine transform of each tile.
+
+    Attributes
+    ----------
+    tiling : IsohedralTiling
+    cell : (n, 2) int
+        Columns ``u`` and ``v``: the tile's cell in the basis of the translation vectors.
+    aspect : (n,) int
+        Index of the tile within its cell.
+    transforms : (n, 2, 3)
+        Affine map of the prototile onto each tile.
+    """
 
     tiling: IsohedralTiling
-    lattice: NDArray[np.int64]  # (n, 3)
-    transforms: NDArray[np.float64]  # (n, 2, 3), maps the prototile onto the tile
+    cell: IntArray
+    aspect: IntArray
+    transforms: Array
 
     def __len__(self) -> int:
-        return len(self.lattice)
+        return len(self.cell)
 
-    def select(self, mask: ArrayLike) -> TileSet:
-        return TileSet(self.tiling, self.lattice[mask], self.transforms[mask])
+    def select(self, mask: NDArray[np.bool_] | IntArray) -> TileSet:
+        """The tiles where the boolean ``mask`` (or the integer index array) selects."""
+        return TileSet(self.tiling, self.cell[mask], self.aspect[mask], self.transforms[mask])
 
-    def vertices(self) -> NDArray[np.float64]:
+    def vertices(self) -> Array:
         """(n, n_vertices, 2) straight-edge tile polygons."""
-        return (
+        vertices: Array = (
             np.einsum("nij,vj->nvi", self.transforms[:, :, :2], self.tiling.vertices) + self.transforms[:, None, :, 2]
         )
+        return vertices
 
     @property
-    def centroids(self) -> NDArray[np.float64]:
-        c = self.tiling.centroid
-        return self.transforms[:, :, :2] @ c + self.transforms[:, :, 2]
+    def centroids(self) -> Array:
+        """(n, 2) centroids of the tiles."""
+        centroids: Array = self.transforms[:, :, :2] @ self.tiling.centroid + self.transforms[:, :, 2]
+        return centroids
 
-    def colors(self) -> NDArray[np.int64]:
-        """Tactile's tile coloring (``get_color``) for all tiles."""
-        clr, period = self.tiling.type.coloring, self.tiling.type.coloring[18]
-        mt1, mt2 = self.lattice[:, 0] % period, self.lattice[:, 1] % period
-        col = clr[self.lattice[:, 2]]
+    def polygons(self) -> list[Any]:
+        """The tiles as shapely polygons (needs the ``shapely`` extra)."""
+        try:
+            import shapely
+        except ImportError:
+            raise ImportError("TileSet.polygons needs shapely: pip install isotile[shapely]") from None
+        return list(shapely.polygons(self.vertices()))
+
+    def colors(self) -> IntArray:
+        """(n,) color index of each tile from the type's coloring table."""
+        table, period = self.tiling.type.coloring, self.tiling.type.coloring[18]
+        mu, mv = self.cell[:, 0] % period, self.cell[:, 1] % period
+        color: IntArray = table[self.aspect]
         for k in range(period - 1):
-            col = np.where(mt1 > k, clr[12 + col], col)
+            color = np.where(mu > k, table[12 + color], color)
         for k in range(period - 1):
-            col = np.where(mt2 > k, clr[15 + col], col)
-        return col
+            color = np.where(mv > k, table[15 + color], color)
+        return color
 
     def adjacency(self, kind: AdjacencyKind = "edge") -> csr_array:
         """(n, n) boolean sparse adjacency from the lattice table of the type.
@@ -320,8 +524,10 @@ class TileSet:
         ``edge``: share an edge; ``vertex``: share an edge or a vertex; ``vertex-only``: share exactly a vertex.
         Pairs where one tile is not in the set are dropped.
         """
-        return lattice_adjacency(self.lattice, self.tiling.type, kind)
+        return lattice_adjacency(self.cell, self.aspect, self.tiling.type, kind)
 
-    def neighbors(self, i: int, kind: AdjacencyKind = "edge") -> NDArray[np.int64]:
+    def neighbors(self, i: int, kind: AdjacencyKind = "edge") -> IntArray:
+        """Indices of the tiles adjacent to tile ``i``, sorted."""
         adj = self.adjacency(kind)
-        return adj.indices[adj.indptr[i] : adj.indptr[i + 1]]
+        neighbors: IntArray = np.sort(adj.indices[adj.indptr[i] : adj.indptr[i + 1]]).astype(np.int64)
+        return neighbors
