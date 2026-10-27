@@ -52,17 +52,24 @@ class IsohedralTiling:
     """One of the 81 isohedral types at given parameters, placed by an affine frame.
 
     A tile is identified by its cell ``(u, v)``, the parallelogram of the lattice spanned by
-    :attr:`translation_u` and :attr:`translation_v`, and its aspect, the index of the tile within the cell.
+    [`translation_u`][isotile.IsohedralTiling.translation_u] and
+    [`translation_v`][isotile.IsohedralTiling.translation_v], and its aspect, the index of the tile within the cell.
 
     Parameters
     ----------
     tiling_type : int or TilingType
+        Type number (see [`tiling_types`][isotile.tiling_types]) or the type data.
     parameters : array-like, optional
         ``n_params`` values; the type's defaults when omitted. Any finite values for which the straight prototile
-        is a valid simple polygon are accepted (see :func:`isotile.check_prototile`).
+        is a valid simple polygon are accepted (see [`check_prototile`][isotile.check_prototile]).
     frame : (2, 3) array-like, optional
         Affine map from the type's native coordinates to world coordinates, applied to the vertices, translation
         vectors, aspects and edges. Identity when omitted.
+
+    Attributes
+    ----------
+    type : TilingType
+        The data of the type.
 
     Raises
     ------
@@ -153,6 +160,7 @@ class IsohedralTiling:
 
     @property
     def parameters(self) -> Array:
+        """(n_params,) current parameters. Assigning checks the prototile and raises ``ValueError`` if it is invalid."""
         return self._parameters.copy()
 
     @parameters.setter
@@ -251,7 +259,7 @@ class IsohedralTiling:
         return inscribed_circle(self._vertices)[1]
 
     def info(self) -> dict[str, Any]:
-        """Metadata of the type as in :meth:`TilingType.info`, for the current parameters.
+        """Metadata of the type as in [`TilingType.info`][isotile.TilingType.info], for the current parameters.
 
         Adds the key ``parameter_values`` (the current parameters) and, in each entry of ``parameters``, the key
         ``value``. ``default_parameters`` and ``default`` keep the type's defaults.
@@ -263,13 +271,30 @@ class IsohedralTiling:
         return info
 
     def describe(self) -> str:
-        """Human-readable summary of the type with the current parameter values, see :meth:`TilingType.describe`."""
+        """Human-readable summary of the type with the current parameter values, see [`TilingType.describe`][isotile.TilingType.describe]."""
         return self.type.describe(self._parameters)
 
     # -- tile generation -------------------------------------------------------------------------
 
     def tiles(self, cell: ArrayLike, aspect: ArrayLike) -> TileSet:
-        """Tiles with the given cells ``(u, v)``, shape (n, 2), and aspects, shape (n,) or a single value."""
+        """The tiles with the given cells and aspects.
+
+        Parameters
+        ----------
+        cell : (n, 2) array-like of int
+            Cells ``(u, v)``.
+        aspect : int or (n,) array-like of int
+            Aspect of each tile; a single value applies to all cells.
+
+        Returns
+        -------
+        TileSet
+
+        Raises
+        ------
+        ValueError
+            If an aspect is outside ``[0, n_aspects)``.
+        """
         cells = np.asarray(cell, dtype=np.int64).reshape(-1, 2)
         aspects = np.broadcast_to(np.asarray(aspect, dtype=np.int64), (len(cells),)).copy()
         if len(aspects) and (aspects.min() < 0 or aspects.max() >= self.type.n_aspects):
@@ -288,7 +313,17 @@ class IsohedralTiling:
 
         Every cell whose origin lies in the rectangle (floor on the lower side, 1e-7 slack on the upper side, one
         extra row at the top) contributes all its aspects. Tiles near the boundary may reach outside the
-        rectangle and tiles outside it may reach in; use :meth:`cover` for exact coverage.
+        rectangle and tiles outside it may reach in; use [`cover`][isotile.IsohedralTiling.cover] for exact
+        coverage.
+
+        Parameters
+        ----------
+        bounds : (x0, y0, x1, y1)
+            The rectangle.
+
+        Returns
+        -------
+        TileSet
         """
         x0, y0, x1, y1 = bounds
         pts = self._cell_coordinates(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
@@ -301,17 +336,29 @@ class IsohedralTiling:
     def cover(self, bounds: Bounds) -> TileSet:
         """All tiles whose straight-edge polygon overlaps the rectangle ``bounds`` with positive area.
 
-        A tile that only touches the rectangle at a point or along an edge is not included. The overlap area must
-        exceed ``1e-9`` times the tile area, which separates real overlaps from rounding errors at contacts. The
-        test is exact for any simple polygon, convex or not: after a bounding-box prefilter the polygon is clipped
-        against the four sides of the rectangle (Sutherland-Hodgman, vectorized over the tiles) and the area of
-        the result is measured.
+        Parameters
+        ----------
+        bounds : (x0, y0, x1, y1)
+            The rectangle.
+
+        Returns
+        -------
+        TileSet
+            The tiles sorted by cell ``u``, then ``v``, then aspect.
 
         Raises
         ------
         ValueError
             If the rectangle does not have ``x1 > x0`` and ``y1 > y0`` (a region of zero width or height has no
             positive-area overlap) or has non-finite bounds.
+
+        Notes
+        -----
+        A tile that only touches the rectangle at a point or along an edge is not included. The overlap area must
+        exceed ``1e-9`` times the tile area, which separates real overlaps from rounding errors at contacts. The
+        test is exact for any simple polygon, convex or not: after a bounding-box prefilter the polygon is clipped
+        against the four sides of the rectangle (Sutherland-Hodgman, vectorized over the tiles) and the area of
+        the result is measured.
         """
         x0, y0, x1, y1 = (float(b) for b in bounds)
         if not (x1 > x0 and y1 > y0 and math.isfinite(x1 - x0) and math.isfinite(y1 - y0)):
@@ -344,19 +391,28 @@ class IsohedralTiling:
     ) -> TileSet:
         """Tiles that cover a region, with the tile size set by a tile count or given directly.
 
-        The region is ``bounds = (x0, y0, x1, y1)`` expanded on every side by ``margin`` times its width (left and
-        right) or height (top and bottom). Give exactly one of:
-
-        ``n_tiles``
-            Target number of tiles. The tile size is ``sqrt(region_area / n_tiles)``, so the tiles that fit into the
-            area have that count; the tiles along the boundary that reach into the region come on top.
-        ``tile_size``
-            Square root of the area of one tile.
-
         The tile area is the area of the straight prototile. The frame of this tiling gives the orientation (its
         linear part is scaled by ``tile_size / sqrt(area)``); its own scale and position are replaced: the type's
-        native origin is placed at the center of the region. The result is :meth:`cover` of the region by the
-        resulting tiling (the tiles that overlap the region with positive area, see :meth:`cover`), available as ``tiles.tiling``.
+        native origin is placed at the center of the region.
+
+        Parameters
+        ----------
+        bounds : (x0, y0, x1, y1)
+            The region, a rectangle.
+        n_tiles : int, optional
+            Target number of tiles. The tile size is ``sqrt(region_area / n_tiles)``, so the tiles that fit into
+            the area have that count; the tiles along the boundary that reach into the region come on top.
+        tile_size : float, optional
+            Square root of the area of one tile. Give exactly one of ``n_tiles`` and ``tile_size``.
+        margin : float, default 0.0
+            The region is expanded on every side by ``margin`` times its width (left and right) or height (top and
+            bottom).
+
+        Returns
+        -------
+        TileSet
+            [`cover`][isotile.IsohedralTiling.cover] of the expanded region by the resulting tiling (the tiles that
+            overlap the region with positive area), available as ``tiles.tiling``.
 
         Raises
         ------
@@ -523,6 +579,7 @@ class TileSet:
     Attributes
     ----------
     tiling : IsohedralTiling
+        The tiling that the tiles belong to.
     cell : (n, 2) int
         Columns ``u`` and ``v``: the tile's cell in the basis of the translation vectors.
     aspect : (n,) int
@@ -540,11 +597,21 @@ class TileSet:
         return len(self.cell)
 
     def select(self, mask: NDArray[np.bool_] | IntArray) -> TileSet:
-        """The tiles where the boolean ``mask`` (or the integer index array) selects."""
+        """The tiles that a boolean mask or an integer index array selects.
+
+        Parameters
+        ----------
+        mask : (n,) array of bool or of int
+            Boolean mask over the tiles, or indices of the tiles to keep.
+
+        Returns
+        -------
+        TileSet
+        """
         return TileSet(self.tiling, self.cell[mask], self.aspect[mask], self.transforms[mask])
 
     def vertices(self) -> Array:
-        """(n, n_vertices, 2) straight-edge tile polygons."""
+        """(n, n_vertices, 2) straight-edge tile polygons, in world coordinates."""
         vertices: Array = (
             np.einsum("nij,vj->nvi", self.transforms[:, :, :2], self.tiling.vertices) + self.transforms[:, None, :, 2]
         )
@@ -557,7 +624,13 @@ class TileSet:
         return centroids
 
     def polygons(self) -> list[Any]:
-        """The tiles as shapely polygons (needs the ``shapely`` extra)."""
+        """The tiles as a list of shapely polygons (needs the ``shapely`` extra).
+
+        Raises
+        ------
+        ImportError
+            If shapely is not installed.
+        """
         try:
             import shapely
         except ImportError:
@@ -578,13 +651,31 @@ class TileSet:
     def adjacency(self, kind: AdjacencyKind = "edge") -> csr_array:
         """(n, n) boolean sparse adjacency from the lattice table of the type.
 
-        ``edge``: share an edge; ``vertex``: share an edge or a vertex; ``vertex-only``: share exactly a vertex.
         Pairs where one tile is not in the set are dropped.
+
+        Parameters
+        ----------
+        kind : {"edge", "vertex", "vertex-only"}, default "edge"
+            ``"edge"``: the tiles share an edge; ``"vertex"``: they share an edge or a vertex; ``"vertex-only"``:
+            they share exactly a vertex.
+
+        Returns
+        -------
+        scipy.sparse.csr_array
+            Symmetric boolean matrix; entry ``(i, j)`` is true if tile ``j`` is adjacent to tile ``i``.
         """
         return lattice_adjacency(self.cell, self.aspect, self.tiling.type, kind)
 
     def neighbors(self, i: int, kind: AdjacencyKind = "edge") -> IntArray:
-        """Indices of the tiles adjacent to tile ``i``, sorted."""
+        """Indices of the tiles adjacent to tile ``i``, sorted.
+
+        Parameters
+        ----------
+        i : int
+            Index of the tile in this tile set.
+        kind : {"edge", "vertex", "vertex-only"}, default "edge"
+            Kind of adjacency, see [`adjacency`][isotile.TileSet.adjacency].
+        """
         adj = self.adjacency(kind)
         neighbors: IntArray = np.sort(adj.indices[adj.indptr[i] : adj.indptr[i + 1]]).astype(np.int64)
         return neighbors

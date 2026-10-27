@@ -1,4 +1,13 @@
-# isotile
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/bright-fakl/isotile/main/docs/assets/logo/lockup-dark.svg">
+    <img src="https://raw.githubusercontent.com/bright-fakl/isotile/main/docs/assets/logo/lockup-light.svg" alt="isotile" height="72">
+  </picture>
+</h1>
+
+[![Docs](https://img.shields.io/badge/docs-bright--fakl.github.io%2Fisotile-blue)](https://bright-fakl.github.io/isotile/)
+
+Documentation: <https://bright-fakl.github.io/isotile/>
 
 Isohedral tilings in NumPy: the 81 isohedral tiling types, vectorized tile generation and exact tile adjacency from
 a lattice table. It replaces [tactile](https://github.com/isohedral/tactile) for these tasks and keeps its tiling

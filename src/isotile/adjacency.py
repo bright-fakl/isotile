@@ -21,11 +21,32 @@ _KINDS = {"edge": (KIND_EDGE,), "vertex": (KIND_EDGE, KIND_VERTEX), "vertex-only
 def lattice_adjacency(
     cell: NDArray[np.int64], aspect: NDArray[np.int64], tiling_type: TilingType, kind: AdjacencyKind
 ) -> csr_array:
-    """Adjacency of tiles given by their cells (n, 2) and aspects (n,), from the type's table.
+    """Adjacency of tiles given by their cells and aspects, from the table of the type.
 
     The table does not depend on the parameters, the frame or the position of the tiling. Pairs where one tile is
-    not in the set are dropped. ``kind``: ``"edge"`` (shared edge), ``"vertex"`` (shared edge or vertex),
-    ``"vertex-only"`` (shared vertex, no shared edge).
+    not in the set are dropped.
+
+    Parameters
+    ----------
+    cell : (n, 2) array of int
+        Cell ``(u, v)`` of each tile.
+    aspect : (n,) array of int
+        Aspect of each tile.
+    tiling_type : TilingType
+        The type of the tiling; its ``adjacency`` table is used.
+    kind : {"edge", "vertex", "vertex-only"}
+        ``"edge"``: shared edge; ``"vertex"``: shared edge or vertex; ``"vertex-only"``: shared vertex and no shared
+        edge.
+
+    Returns
+    -------
+    scipy.sparse.csr_array
+        Symmetric boolean matrix of shape ``(n, n)``; row and column ``i`` are tile ``i``.
+
+    Raises
+    ------
+    ValueError
+        If ``kind`` is not one of the three kinds.
     """
     try:
         wanted = _KINDS[kind]
@@ -64,10 +85,25 @@ def lattice_adjacency(
 def geometric_adjacency(
     polygons: Sequence[NDArray[np.float64]] | NDArray[np.float64], tol: float = 1e-6
 ) -> tuple[csr_array, csr_array]:
-    """Edge and vertex-only adjacency of polygons given as (k, 2) vertex arrays, by counting shared vertices.
+    """Edge and vertex-only adjacency of polygons, by counting shared vertices.
 
     Vertices closer than ``tol`` are one vertex. Two polygons share an edge if they share 2 or more vertices and
-    are vertex-only neighbors if they share exactly one.
+    are vertex-only neighbors if they share exactly one. Only vertices are compared: a vertex that lies inside an
+    edge of another polygon is not a shared vertex.
+
+    Parameters
+    ----------
+    polygons : sequence of (k, 2) arrays, or (n, k, 2) array
+        Vertices of each polygon.
+    tol : float, default 1e-6
+        Distance below which two vertices are the same vertex, in the units of the coordinates.
+
+    Returns
+    -------
+    edge : scipy.sparse.csr_array
+        Boolean matrix of shape ``(n, n)``; true for polygons that share an edge.
+    vertex_only : scipy.sparse.csr_array
+        Boolean matrix of shape ``(n, n)``; true for polygons that share exactly one vertex.
     """
     pts = np.concatenate(polygons)
     owner = np.repeat(np.arange(len(polygons)), [len(p) for p in polygons])

@@ -1,0 +1,67 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "CHANGELOG.md"
+      - "README.md"
+      - ".github/workflows/deploy-docs.yml"
+  # The build job also runs for pull requests that touch the documentation; the deploy job does not.
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "CHANGELOG.md"
+      - ".github/workflows/deploy-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Set up the environment (with the docs group)
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync-args: --group docs --no-group tactile
+
+      - name: Build documentation
+        run: uv run --no-sync mkdocs build -s -d site
+
+      - name: Upload documentation artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
