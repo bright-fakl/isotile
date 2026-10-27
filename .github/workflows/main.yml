@@ -223,3 +223,17 @@ jobs:
               assert tiles.adjacency("edge").nnz > 0
           print(f"{len(isotile.tiling_types())} types generated tiles from {isotile.__file__}")
           PY
+
+  check-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up the environment (with the docs group)
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync-args: --group docs --no-group tactile
+
+      - name: Check that the documentation builds (strict)
+        run: uv run --no-sync mkdocs build -s -d site
