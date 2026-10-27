@@ -169,7 +169,8 @@ def inscribed_circle(polygon: NDArray[np.float64]) -> tuple[NDArray[np.float64],
             bounds=(None, None),
             method="highs",
         )
-        return np.asarray(result.x[:2], dtype=float), float(result.x[2])
+        solution = np.asarray(result.x, dtype=float)
+        return solution[:2], float(solution[2])
 
     low, high = polygon.min(axis=0), polygon.max(axis=0)
     size = float((high - low).max())

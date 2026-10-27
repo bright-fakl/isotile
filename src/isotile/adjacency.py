@@ -73,7 +73,10 @@ def geometric_adjacency(
     owner = np.repeat(np.arange(len(polygons)), [len(p) for p in polygons])
     pairs = cKDTree(pts).query_pairs(tol, output_type="ndarray")
     m = len(pts)
-    graph = coo_array((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(m, m))
+    index_dtype = np.int32 if m < np.iinfo(np.int32).max else np.int64  # scipy 1.11 csgraph needs int32 indices
+    graph = coo_array(
+        (np.ones(len(pairs)), (pairs[:, 0].astype(index_dtype), pairs[:, 1].astype(index_dtype))), shape=(m, m)
+    )
     _, vertex_id = connected_components(graph, directed=False)
     incidence = coo_array((np.ones(m), (owner, vertex_id))).tocsr()
     incidence.data[:] = 1.0  # duplicate (polygon, vertex) entries were summed

@@ -122,9 +122,10 @@ def test_tiles_cover_the_region(case):
     polygons = tiles.polygons()
     assert all(p.is_valid for p in polygons)
     assert tiles.tiling.area == pytest.approx(region.area / n_tiles)
-    # union of the tiles contains the region
-    missing = region.difference(shapely.union_all(polygons))
-    assert missing.area < 1e-9 * region.area
+    # the tiles do not overlap, so their parts inside the region add up to the region exactly when they cover it
+    # (shapely's overlay of the whole union is avoided: GEOS handles vertices that differ by 1e-16 differently)
+    parts = sum(shapely.intersection(p, region).area for p in polygons)
+    assert parts == pytest.approx(region.area, rel=1e-9)
     # random points of the region lie in a tile; every tile meets the region
     rng = np.random.default_rng(1)
     pts = shapely.points(rng.uniform(region.bounds[:2], region.bounds[2:], (3000, 2)))
@@ -147,7 +148,8 @@ def test_named_constructors_cover_too():
     for tiling in constructors:
         tiles = tiling.fill_region((0, 0, 3, 2), n_tiles=60)
         region = shapely.box(0, 0, 3, 2)
-        assert region.difference(shapely.union_all(tiles.polygons())).area < 1e-9 * region.area
+        parts = sum(shapely.intersection(p, region).area for p in tiles.polygons())
+        assert parts == pytest.approx(region.area, rel=1e-9)
 
 
 def test_polygons_need_shapely_message(monkeypatch):

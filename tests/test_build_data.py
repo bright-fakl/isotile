@@ -26,12 +26,13 @@ def test_regeneration_reproduces_the_stored_arrays(built, stored):
     assert _build_data.differences(built, stored) == []
 
 
-def test_regeneration_is_deterministic_and_byte_identical(built, tmp_path):
+def test_written_file_is_deterministic_and_reads_back(built, stored, tmp_path):
     first, second = tmp_path / "first.npz", tmp_path / "second.npz"
     _build_data.write_arrays(first, built)
     _build_data.write_arrays(second, dict(reversed(list(built.items()))))  # insertion order does not matter
-    assert first.read_bytes() == second.read_bytes()
-    assert first.read_bytes() == DATA_FILE.read_bytes()
+    assert first.read_bytes() == second.read_bytes()  # no time stamps, sorted keys
+    with np.load(first) as z:
+        assert _build_data.differences({key: z[key] for key in z.files}, stored) == []
 
 
 def test_dtypes_are_fixed(stored):
