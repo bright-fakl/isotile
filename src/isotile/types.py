@@ -34,34 +34,38 @@ class TilingType:
 
     Attributes
     ----------
-    vertex_coeffs : (n_vertices, 2, n_params + 1)
-    aspect_coeffs : (n_aspects, 2, 3, n_params + 1)
-        Affine 2x3 matrix of each aspect (tile orientation inside the translation unit).
+    number : int
+        Type number, 7 for IH7.
     shape_types : tuple of str
         Shape type (``"J"``, ``"U"``, ``"S"`` or ``"I"``) of each edge shape id.
-    edge_shape_ids : (n_vertices,)
+    edge_shape_ids : (n_vertices,) int
         Shape id of each edge.
-    translation_coeffs : (2, 2, n_params + 1)
-        Translation vectors ``translation_u`` and ``translation_v``; row k is vector k.
-    edge_orientations : (n_vertices, 2)
+    edge_orientations : (n_vertices, 2) int
         Flip and rotate flags of each edge (index into the four orientation matrices).
-    coloring : (19,)
+    default_params : (n_params,) float
+        Default parameters.
+    vertex_coeffs : (n_vertices, 2, n_params + 1) float
+        Coefficients of the prototile vertices; the last column is the constant term.
+    aspect_coeffs : (n_aspects, 2, 3, n_params + 1) float
+        Affine 2x3 matrix of each aspect (tile orientation inside the translation unit).
+    translation_coeffs : (2, 2, n_params + 1) float
+        Translation vectors ``translation_u`` and ``translation_v``; row k is vector k.
+    coloring : (19,) int
         Coloring table: 12 aspect/next-color entries, 3 + 3 transitions, period.
-    adjacency : (k, 5)
+    adjacency : (k, 5) int
         Rows ``(aspect, d_cell_u, d_cell_v, neighbor_aspect, kind)`` for a tile with cell ``(u, v)`` and the given
         aspect: the neighbor has the cell ``(u + d_cell_u, v + d_cell_v)``. ``kind`` is 0 for a shared edge and 1
         for a shared vertex only.
-    safe_ranges : (n_params, 2)
-        Per free parameter, the interval ``[low, high]`` around the default value in which the straight
-        prototile stays simple while all other parameters keep their defaults: the interval is the contiguous
-        one around the default with the other parameters at their defaults; an infinite end (``-inf`` or ``inf``)
-        means no limit. This is a one-parameter slice,
-        not the valid region: combinations of parameters inside their intervals can still be invalid (use
-        :func:`isotile.check_prototile`), and values outside an interval can be valid when other parameters change.
-        A finite end is where the prototile becomes invalid (rounded inward to a multiple of 1e-6 of the distance
-        from the default). Beyond a degenerate value the
-        prototile can be valid again (a vertex passing through another one), but that is another component of
-        the valid set.
+    safe_ranges : (n_params, 2) float
+        Per free parameter, the interval ``[low, high]`` around the default value in which the straight prototile
+        stays simple while all other parameters keep their defaults; an infinite end (``-inf`` or ``inf``) means
+        no limit. A finite end is where the prototile becomes invalid (rounded inward to a multiple of 1e-6 of the
+        distance from the default). Beyond a degenerate value the prototile can be valid again (a vertex passing
+        through another one), but that is another component of the valid set.
+
+        The intervals are one-parameter slices, not the valid region: combinations of parameters inside their
+        intervals can still be invalid (use [`check_prototile`][isotile.check_prototile]), and values outside an
+        interval can be valid when other parameters change.
     """
 
     number: int
@@ -78,14 +82,17 @@ class TilingType:
 
     @property
     def n_params(self) -> int:
+        """Number of free parameters."""
         return len(self.default_params)
 
     @property
     def n_vertices(self) -> int:
+        """Number of prototile vertices (equal to the number of edges)."""
         return len(self.edge_shape_ids)
 
     @property
     def n_aspects(self) -> int:
+        """Number of aspects, the tiles per cell."""
         return len(self.aspect_coeffs)
 
     @property

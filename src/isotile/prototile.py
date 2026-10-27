@@ -19,7 +19,7 @@ _MAX_SQUARES = 200_000  # branch and bound of inscribed_circle
 
 @dataclass(frozen=True)
 class PrototileReport:
-    """Result of :func:`check_prototile`.
+    """Result of [`check_prototile`][isotile.check_prototile].
 
     Attributes
     ----------
@@ -107,7 +107,7 @@ def check_polygon(vertices: NDArray[np.float64]) -> PrototileReport:
 def check_prototile(tiling_type: int | TilingType, parameters: ArrayLike | None = None) -> PrototileReport:
     """Report whether the straight prototile of a type at the given parameters is a valid simple polygon.
 
-    This is the test the :class:`isotile.IsohedralTiling` constructor applies; it builds no tiling, so an editor can
+    This is the test the [`IsohedralTiling`][isotile.IsohedralTiling] constructor applies; it builds no tiling, so an editor can
     call it for every intermediate state. The prototile is checked in the type's native coordinates (a frame does
     not change validity).
 
