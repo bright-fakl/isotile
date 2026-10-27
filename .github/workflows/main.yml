@@ -1,0 +1,225 @@
+name: Main
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Check the lock file
+        run: uv lock --check
+
+      - name: Ruff check
+        run: uv run --no-sync ruff check --no-fix .
+
+      - name: Ruff format check
+        run: uv run --no-sync ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+
+      - name: Check typing (mypy --strict on src)
+        run: uv run --no-sync mypy
+
+  # The test matrix runs without tactile; the equivalence tests are skipped here and run in `tactile-equivalence`.
+  tests:
+    name: tests (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          - os: macos-latest
+            python-version: "3.12"
+          - os: windows-latest
+            python-version: "3.12"
+      fail-fast: false
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: ${{ matrix.python-version }}
+          sync-args: --no-group tactile
+
+      - name: Run tests with coverage
+        run: uv run --no-sync python -m pytest tests --cov --cov-config=pyproject.toml --cov-report=term-missing --cov-report=xml
+
+      - name: Upload the coverage report
+        if: ${{ matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  tactile-equivalence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up the environment (with tactile)
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Verify tactile is installed
+        run: uv run --no-sync python -c "import tactile"
+
+      - name: Run the tactile equivalence tests
+        run: uv run --no-sync python -m pytest tests -m tactile --no-cov
+
+  data-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up the environment (with tactile)
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.12"
+
+      - name: Regenerate the data file and compare
+        run: uv run --no-sync python -m isotile._build_data --check
+
+  minimum-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.8.17"
+
+      - name: Install the lowest versions of the direct dependencies
+        run: |
+          uv venv --python 3.10 /tmp/minvenv
+          VIRTUAL_ENV=/tmp/minvenv uv pip install --resolution lowest-direct ".[shapely]" "pytest>=7.2.0"
+          VIRTUAL_ENV=/tmp/minvenv uv pip list
+
+      - name: Run tests
+        run: |
+          VIRTUAL_ENV=/tmp/minvenv uv run --no-project python -m pytest tests -p no:cacheprovider
+
+  wheel-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+
+      - name: Set up the environment
+        uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.10"
+
+      - name: Build the sdist and the wheel
+        run: uv build -o dist
+
+      - name: Build a wheel from the sdist
+        run: |
+          mkdir dist-from-sdist
+          uv build --wheel --out-dir dist-from-sdist dist/isotile-*.tar.gz
+
+      - name: Verify the wheels are pure Python
+        run: |
+          for WHEEL in dist/isotile-*-py3-none-any.whl dist-from-sdist/isotile-*-py3-none-any.whl; do
+            echo "Wheel: $WHEEL"
+            uv run --no-sync python -m zipfile -l "$WHEEL" | head -30
+          done
+
+      # The expected set is read from the source tree, never hardcoded here.
+      - name: Verify every source data file is in the wheel, the sdist and the wheel built from the sdist
+        run: |
+          uv run --no-sync python - <<'PY'
+          import glob, pathlib, sys, tarfile, zipfile
+
+          source_dir = pathlib.Path("src/isotile/data")
+          expected = {p.name for p in source_dir.iterdir() if p.is_file() and p.suffix != ".py"}
+          if not expected:
+              sys.exit(f"No data files found in {source_dir}; the check would be vacuous.")
+
+          def wheel_names(path):
+              with zipfile.ZipFile(path) as zf:
+                  return {pathlib.PurePosixPath(n).name for n in zf.namelist() if n.startswith("isotile/data/")}
+
+          def sdist_names(path):
+              with tarfile.open(path) as tf:
+                  return {pathlib.PurePosixPath(n).name for n in tf.getnames() if "/src/isotile/data/" in n}
+
+          found = {
+              "wheel": wheel_names(glob.glob("dist/isotile-*.whl")[0]),
+              "wheel from sdist": wheel_names(glob.glob("dist-from-sdist/isotile-*.whl")[0]),
+              "sdist": sdist_names(glob.glob("dist/isotile-*.tar.gz")[0]),
+          }
+          for label, names in found.items():
+              missing = sorted(expected - names)
+              if missing:
+                  sys.exit(f"Data files absent from the {label}: {missing}")
+              print(f"{label}: {sorted(expected)}")
+
+          with zipfile.ZipFile(glob.glob("dist/isotile-*.whl")[0]) as zf:
+              names = zf.namelist()
+          for required in ("LICENSE", "NOTICE"):
+              if not any(n.endswith(f".dist-info/licenses/{required}") for n in names):
+                  sys.exit(f"{required} is not in the wheel")
+          if "isotile/py.typed" not in names:
+              sys.exit("py.typed is not in the wheel")
+          PY
+
+      - name: Install the wheel into a clean venv
+        run: |
+          WHEEL=$(ls dist/isotile-*-py3-none-any.whl)
+          uv venv /tmp/smokevenv --python 3.10
+          VIRTUAL_ENV=/tmp/smokevenv uv pip install "$WHEEL"
+
+      - name: Import and generate tiles from a neutral directory
+        env:
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          mkdir -p /tmp/smoke-neutral
+          cd /tmp/smoke-neutral
+          VIRTUAL_ENV=/tmp/smokevenv uv run --no-project python - <<'PY'
+          import os
+
+          import isotile
+
+          if isotile.__file__.startswith(os.environ["WORKSPACE"]):
+              raise SystemExit(f"isotile resolved to the checkout rather than the wheel: {isotile.__file__}")
+          assert len(isotile.tiling_types()) == 81
+          assert all(isotile.get_type(n).safe_ranges.shape == (isotile.get_type(n).n_params, 2) for n in isotile.tiling_types())
+          for number in isotile.tiling_types():
+              tiles = isotile.IsohedralTiling(number).fill_region((0, 0, 4, 3), n_tiles=50)
+              assert len(tiles) >= 50
+              assert tiles.adjacency("edge").nnz > 0
+          print(f"{len(isotile.tiling_types())} types generated tiles from {isotile.__file__}")
+          PY
