@@ -40,27 +40,46 @@ region; the test for a combination of values is `check_prototile`.
 
 ## The lattice, cells and aspects
 
-The translation symmetries of the tiling form a lattice spanned by two vectors, `translation_u` and `translation_v`.
-The parallelogram spanned by the vectors, translated to a lattice point, is a cell. A cell is identified by two
-integers `(u, v)`: its origin is `u * translation_u + v * translation_v`.
+The tiling repeats under two translations, `translation_u` and `translation_v`. Shifting the whole tiling by
+`u * translation_u + v * translation_v`, for any integers `u` and `v`, maps it onto itself. These vectors define a
+lattice: the points `u * translation_u + v * translation_v` plus a fixed anchor point, which is the origin `(0, 0)` of
+the native coordinates of the type.
 
 <figure markdown="span">
-  ![A patch of the pentagonal tiling IH28 with a tile in amber. Two arrows from a vertex of that tile are labeled translation_u and translation_v; a dashed parallelogram spanned by them is the cell. The four tiles of the cell are amber.](assets/figures/concepts-lattice-light.svg#only-light)
-  ![A patch of the pentagonal tiling IH28 with a tile in amber. Two arrows from a vertex of that tile are labeled translation_u and translation_v; a dashed parallelogram spanned by them is the cell. The four tiles of the cell are amber.](assets/figures/concepts-lattice-dark.svg#only-dark)
-  <figcaption>The cell <code>(0, 0)</code> of IH28. The arrows start at the origin of the amber tile and are <code>translation_u</code> and <code>translation_v</code>; the dashed parallelogram is the cell. The four tiles of the cell are amber, the aspect 0 tile in the darker tint.</figcaption>
+  ![A patch of the pentagonal tiling IH28. Small dots mark the lattice points. Two arrows from the dot labeled origin are labeled translation_u and translation_v; a dashed parallelogram between four dots is the cell. Four tiles around the origin are colored, the others are gray-blue.](assets/figures/concepts-lattice-light.svg#only-light)
+  ![A patch of the pentagonal tiling IH28. Small dots mark the lattice points. Two arrows from the dot labeled origin are labeled translation_u and translation_v; a dashed parallelogram between four dots is the cell. Four tiles around the origin are colored, the others are gray-blue.](assets/figures/concepts-lattice-dark.svg#only-dark)
+  <figcaption>IH28. The dots are the lattice points: the translates of the origin by <code>u * translation_u + v * translation_v</code>. The four colored tiles are the cell <code>(0, 0)</code>; the dashed parallelogram is spanned by the two vectors at the origin.</figcaption>
 </figure>
 
-A cell holds one or more tiles: `TilingType.n_aspects` of them (between 1 and 12). The index of a tile within its
-cell is its aspect. An aspect is a placement of the prototile, an affine map that can include a rotation or a
-reflection (`TilingType.has_reflections`), and the tile with cell `(u, v)` and aspect `a` is the prototile mapped by
+A cell is the group of `TilingType.n_aspects` tiles that belongs to one lattice point. It is identified by the integers
+`(u, v)` of the point. The tiles of cell `(u, v)` are the tiles of cell `(0, 0)` shifted by
+`u * translation_u + v * translation_v`, and every tile of the tiling is in exactly one cell. The parallelogram spanned
+by the two vectors at a lattice point is only a drawing aid: the tiles of a cell can lie partly or entirely outside it
+and need not touch its corners.
+
+<figure markdown="span">
+  ![A patch of tiling IH29 with the tiles of four cells in color: each group of four tiles has the same arrangement of blue, yellow, green and purple tiles. Thick lines outline the groups, which are labeled cell (0, 0), (1, 0), (0, 1) and (1, 1). Dots mark the lattice points and a dashed parallelogram outlines cell (0, 0).](assets/figures/concepts-cells-light.svg#only-light)
+  ![A patch of tiling IH29 with the tiles of four cells in color: each group of four tiles has the same arrangement of blue, yellow, green and purple tiles. Thick lines outline the groups, which are labeled cell (0, 0), (1, 0), (0, 1) and (1, 1). Dots mark the lattice points and a dashed parallelogram outlines cell (0, 0).](assets/figures/concepts-cells-dark.svg#only-dark)
+  <figcaption>IH29: the cells <code>(0, 0)</code>, <code>(1, 0)</code>, <code>(0, 1)</code> and <code>(1, 1)</code>, outlined by thick lines. Each is the first group shifted by a lattice vector; the colors show the aspect.</figcaption>
+</figure>
+
+Where the anchor point lies relative to the prototile depends on the type. In 63 of the 81 types it is a vertex of the
+prototile (IH28), in 4 it lies on an edge (IH29) and in 14 elsewhere (IH20, the regular hexagon, is one of them). The
+tiles of a cell therefore lie near their lattice point, not inside the parallelogram.
+
+The index of a tile within its cell is its aspect, from 0 to `n_aspects - 1` (between 1 and 12). An aspect is a placement
+of the prototile: an affine map that can include a rotation or a reflection (`TilingType.has_reflections`). The tile
+with cell `(u, v)` and aspect `a` is the prototile mapped by
 
 - the affine map of aspect `a` (`IsohedralTiling.aspects[a]`), followed by
 - the translation by `u * translation_u + v * translation_v`.
 
+In native coordinates the map of aspect 0 is the identity, so the tile with cell `(0, 0)` and aspect 0 is the prototile itself.
+
 <figure markdown="span">
-  ![Two panels. IH28: four pentagons numbered 0 to 3, each in its own color, form one cell. IH29: four tiles numbered 0 to 3, one of them mirrored. A dashed parallelogram marks the cell.](assets/figures/concepts-aspects-light.svg#only-light)
-  ![Two panels. IH28: four pentagons numbered 0 to 3, each in its own color, form one cell. IH29: four tiles numbered 0 to 3, one of them mirrored. A dashed parallelogram marks the cell.](assets/figures/concepts-aspects-dark.svg#only-dark)
-  <figcaption>The tiles of the cell <code>(0, 0)</code>, one color per aspect and labeled with the aspect index. IH28 has 4 aspects without reflections; IH29 has 4 aspects and <code>has_reflections</code> is true. The dashed parallelogram is the cell.</figcaption>
+  ![Two panels, IH28 and IH29. Each shows the four tiles of cell (0, 0) in four colors, numbered 0 to 3, a large dot labeled origin, small dots for the other lattice points and a dashed parallelogram between four dots. In IH28 the origin is a vertex of tile 0; in IH29 it lies on the edge between tiles 0 and 1.](assets/figures/concepts-aspects-light.svg#only-light)
+  ![Two panels, IH28 and IH29. Each shows the four tiles of cell (0, 0) in four colors, numbered 0 to 3, a large dot labeled origin, small dots for the other lattice points and a dashed parallelogram between four dots. In IH28 the origin is a vertex of tile 0; in IH29 it lies on the edge between tiles 0 and 1.](assets/figures/concepts-aspects-dark.svg#only-dark)
+  <figcaption>The tiles of the cell <code>(0, 0)</code>, one color per aspect and labeled with the aspect index, and the origin. IH28 has 4 aspects without reflections; IH29 has 4 aspects and <code>has_reflections</code> is true. The dashed parallelogram is the cell.</figcaption>
 </figure>
 
 A `TileSet` stores exactly this: `cell` has shape `(n, 2)`, `aspect` has shape `(n,)` and `transforms` has shape

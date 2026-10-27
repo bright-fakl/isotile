@@ -32,7 +32,7 @@ import numpy as np
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-from matplotlib.collections import PolyCollection
+from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.patches import FancyArrowPatch, Polygon, Rectangle
 
 from isotile import IsohedralTiling, TileSet, get_type
@@ -263,35 +263,50 @@ def note(ax, xy, text, th: Theme, color: str, size: float = 8.5) -> None:
     )
 
 
+def lattice_dots(ax, tiling: IsohedralTiling, th: Theme, size: float = 3.2) -> None:
+    """The lattice points ``u * translation_u + v * translation_v`` (translates of the origin) inside the window."""
+    o = tile_origin(tiling.tiles([[0, 0]], 0), 0)
+    (x0, x1), (y0, y1) = ax.get_xlim(), ax.get_ylim()
+    k = np.arange(-12, 13)
+    pts = o + k[:, None, None] * tiling.translation_u + k[None, :, None] * tiling.translation_v
+    pts = pts.reshape(-1, 2)
+    pts = pts[(pts[:, 0] >= x0) & (pts[:, 0] <= x1) & (pts[:, 1] >= y0) & (pts[:, 1] <= y1)]
+    ax.plot(pts[:, 0], pts[:, 1], "o", ms=size, color=th.text, mec=th.surface, mew=0.6, zorder=8, ls="none")
+
+
+def cell_tiles(tiling: IsohedralTiling, cells) -> TileSet:
+    """The tiles of the given cells, all aspects."""
+    n = tiling.type.n_aspects
+    cells = np.asarray(cells).reshape(-1, 2)
+    return tiling.tiles(np.repeat(cells, n, axis=0), np.tile(np.arange(n), len(cells)))
+
+
 def fig_lattice(th: Theme):
-    """A patch of IH28 with one tile, the cell of the tile and the two translation vectors."""
+    """IH28: the lattice points as dots, one cell outlined, its tiles in color."""
     tiling = unit(IsohedralTiling(28))
-    _home, center, half = cell_extent(tiling)
+    home, center, half = cell_extent(tiling)
     half = 1.18 * half + 0.35
     half = (max(half) * 1.3, max(half))
     tiles = window_tiles(tiling, center, half)
-    faces = [th.muted] * len(tiles)
-    for j in np.flatnonzero((tiles.cell == (0, 0)).all(axis=1)):
-        faces[j] = th.mix(th.amber, 0.4)
-    i = int(np.flatnonzero((tiles.cell == (0, 0)).all(axis=1) & (tiles.aspect == 0))[0])
-    faces[i] = th.amber
     fig, (ax,) = new_axes(1, aspect=half[1] / half[0], width=WIDTH * 0.75)
     frame(ax, center, half, th)
-    draw(ax, tiles, faces, th)
-    origin = tile_origin(tiles, i)
+    draw(ax, tiles, [th.muted] * len(tiles), th)
+    draw(ax, home, [th.aspects[a] for a in range(len(home))], th, lw=1.1, zorder=3)
+    origin = tile_origin(home, 0)
     u, v = tiling.translation_u, tiling.translation_v
     cell_outline(ax, tiling, origin, th)
+    lattice_dots(ax, tiling, th)
     arrow(ax, origin, origin + u, th, th.blue)
     arrow(ax, origin, origin + v, th, th.green)
-    dot(ax, origin, th, th.text)
+    dot(ax, origin, th, th.text, 6.5)
     note(ax, origin + 0.5 * u + 0.17 * np.array([-v[1], v[0]]) / np.linalg.norm(v) * 1.2, "translation_u", th, th.blue)
-    note(ax, origin + 0.5 * v + 0.55 * np.array([-1.0, 0.0]), "translation_v", th, th.green)
-    note(ax, origin + np.array([0.5, -0.3]), "tile origin", th, th.text, 8)
+    note(ax, origin + 0.5 * v + np.array([-0.75, 0.2]), "translation_v", th, th.green)
+    note(ax, origin + np.array([0.55, -0.3]), "origin", th, th.text, 8)
     return fig
 
 
 def fig_aspects(th: Theme):
-    """The tiles of one cell, one color per aspect, for a type without and one with reflections."""
+    """The tiles of the cell (0, 0), one color per aspect, in a type without and a type with reflections."""
     numbers = (28, 29)
     extents = [cell_extent(unit(IsohedralTiling(n))) for n in numbers]
     half = 1.12 * max(float(e[2].max()) for e in extents) + 0.3
@@ -299,15 +314,55 @@ def fig_aspects(th: Theme):
     for ax, number, (_, center, _) in zip(axes, numbers, extents, strict=True):
         t = get_type(number)
         tiling = unit(IsohedralTiling(number))
-        home = tiling.tiles([[0, 0]] * t.n_aspects, range(t.n_aspects))
+        home = cell_tiles(tiling, [[0, 0]])
         around = window_tiles(tiling, center, (half, half))
         reflect = "with reflections" if t.has_reflections else "no reflections"
         frame(ax, center, (half, half), th, f"IH{number}: {t.n_aspects} aspects, {reflect}")
         draw(ax, around, [th.muted] * len(around), th, lw=0.6, edge=th.faint)
         draw(ax, home, [th.aspects[a] for a in range(t.n_aspects)], th, lw=1.1, zorder=3)
         cell_outline(ax, tiling, tile_origin(home, 0), th)
+        lattice_dots(ax, tiling, th)
+        o = tile_origin(home, 0)
         for a, p in enumerate(home.centroids):
-            label(ax, p, str(a), th, th.on_color, 12)
+            label(ax, p + 0.3 * (p - o), str(a), th, th.on_color, 12)
+        dot(ax, o, th, th.text, 6.5)
+        note(ax, o + (np.array([0.6, -0.32]) if number == 28 else np.array([-0.55, 0.0])), "origin", th, th.text, 8)
+    return fig
+
+
+def group_outline(ax, tiles: TileSet, th: Theme) -> None:
+    """Thick lines on the tile edges that separate two cells or border the set (edges are matched by their ends)."""
+    polygons = np.round(tiles.vertices(), 6)
+    owners: dict[tuple, list[int]] = {}
+    for i, poly in enumerate(polygons):
+        for p, q in zip(poly, np.roll(poly, -1, axis=0), strict=True):
+            owners.setdefault(tuple(sorted((tuple(p), tuple(q)))), []).append(i)
+    lines = [key for key, ids in owners.items() if len(ids) == 1 or len({tuple(tiles.cell[i]) for i in ids}) > 1]
+    ax.add_collection(LineCollection(lines, colors=th.text, linewidths=2.2, capstyle="round", zorder=5))
+
+
+def fig_cells(th: Theme):
+    """IH29: the tiles of four neighboring cells, each cell a translate of the cell (0, 0)."""
+    tiling = unit(IsohedralTiling(29))
+    cells = [(0, 0), (1, 0), (0, 1), (1, 1)]
+    group = cell_tiles(tiling, cells)
+    u, v = tiling.translation_u, tiling.translation_v
+    o = tile_origin(group, 0)
+    corners = np.array([o, o + 2 * u, o + 2 * v, o + 2 * u + 2 * v])
+    pts = np.vstack([group.vertices().reshape(-1, 2), corners])
+    lo, hi = pts.min(axis=0), pts.max(axis=0)
+    center, half = (lo + hi) / 2, float(max(hi - lo) / 2) * 1.06
+    fig, (ax,) = new_axes(1, aspect=1.0, width=WIDTH * 0.8)
+    frame(ax, center, (half, half), th)
+    around = window_tiles(tiling, center, (half, half))
+    draw(ax, around, [th.muted] * len(around), th, lw=0.6, edge=th.faint)
+    draw(ax, group, [th.aspects[a] for a in group.aspect], th, lw=0.8, zorder=3)
+    group_outline(ax, group, th)
+    cell_outline(ax, tiling, o, th)
+    for cell in cells:
+        mask = (group.cell == cell).all(axis=1)
+        note(ax, group.centroids[mask].mean(axis=0) + np.array([0.0, 0.75]), f"cell {cell}", th, th.text, 8.5)
+    lattice_dots(ax, tiling, th)
     return fig
 
 
@@ -531,6 +586,7 @@ FIGURES = {
     "hero": fig_hero,
     "concepts-lattice": fig_lattice,
     "concepts-aspects": fig_aspects,
+    "concepts-cells": fig_cells,
     "concepts-families": fig_families,
     "concepts-parameters": fig_parameters,
     "adjacency-neighbors": fig_neighbors,
