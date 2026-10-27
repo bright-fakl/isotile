@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from isotile_proto import IsohedralTiling, tiling_types
+from isotile import IsohedralTiling, tiling_types
 
 ALL_TYPES = tiling_types()
 

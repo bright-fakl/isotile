@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from isotile_proto import IsohedralTiling, geometric_adjacency, get_type, hexagon, square
+from isotile import IsohedralTiling, geometric_adjacency, get_type
 
 from .conftest import random_tilings
 
@@ -55,12 +55,12 @@ def test_table_offsets_are_small(number):
 
 
 def test_square_and_hexagon_neighbors():
-    sq = square(2.0).cover((-20, -20, 20, 20))
+    sq = IsohedralTiling.square().scaled(2.0).cover((-20, -20, 20, 20))
     deg = np.asarray(sq.adjacency("edge").sum(axis=1)).ravel()
     dvert = np.asarray(sq.adjacency("vertex-only").sum(axis=1)).ravel()
     assert deg.max() == 4
     assert dvert.max() == 4
-    hx = hexagon(True, 1.0).cover((-20, -20, 20, 20))
+    hx = IsohedralTiling.hexagon(True).cover((-20, -20, 20, 20))
     assert np.asarray(hx.adjacency("edge").sum(axis=1)).max() == 6
     assert hx.adjacency("vertex-only").nnz == 0
 
