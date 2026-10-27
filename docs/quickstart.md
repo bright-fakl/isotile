@@ -25,6 +25,12 @@ custom = IsohedralTiling(7, [0.7, 0.3])
 print(custom.parameters)  # [0.7 0.3]
 ```
 
+<figure markdown="span">
+  ![Two patches of type IH7: regular hexagons at the default parameters, and irregular pentagons and hexagons at the parameters 0.7 and 0.3. The prototile outline is drawn in black.](assets/figures/quickstart-create-light.svg#only-light)
+  ![Two patches of type IH7: regular hexagons at the default parameters, and irregular pentagons and hexagons at the parameters 0.7 and 0.3. The prototile outline is drawn in black.](assets/figures/quickstart-create-dark.svg#only-dark)
+  <figcaption><code>tiling</code> and <code>custom</code>. The black outline is the prototile, <code>tiling.prototile()</code>; the tints are the coloring of the type.</figcaption>
+</figure>
+
 Squares, hexagons, triangles and quadrilaterals have named constructors. The triangle and the quadrilateral take the
 polygon to tile; the prototile equals that polygon.
 
@@ -37,6 +43,12 @@ quadrilateral = IsohedralTiling.quadrilateral([(0, 0), (4, 0), (3, 2), (0, 1)]) 
 print(square.type.number, hexagon.type.number)  # 76 20
 print(triangle.prototile())  # (3, 2) outline, counterclockwise
 ```
+
+<figure markdown="span">
+  ![Four tilings: squares (IH76), regular hexagons (IH20), triangles (IH84) and irregular quadrilaterals (IH46). One tile of each is amber.](assets/figures/concepts-families-light.svg#only-light)
+  ![Four tilings: squares (IH76), regular hexagons (IH20), triangles (IH84) and irregular quadrilaterals (IH46). One tile of each is amber.](assets/figures/concepts-families-dark.svg#only-dark)
+  <figcaption>The tilings <code>square</code>, <code>hexagon</code>, <code>triangle</code> and <code>quadrilateral</code>, with their type numbers.</figcaption>
+</figure>
 
 ## Generate tiles
 
@@ -54,6 +66,12 @@ print(len(by_size))  # 84
 wider = tiling.fill_region((0, 0, 10, 6), n_tiles=200, margin=0.1)  # region grown by 10% on every side
 print(len(wider))  # 228: n_tiles counts for the grown region, so the tiles get larger
 ```
+
+<figure markdown="span">
+  ![A patch of hexagonal tiles in three blue tints that covers a dashed rectangle; tiles along the boundary reach outside it.](assets/figures/quickstart-fill-light.svg#only-light)
+  ![A patch of hexagonal tiles in three blue tints that covers a dashed rectangle; tiles along the boundary reach outside it.](assets/figures/quickstart-fill-dark.svg#only-dark)
+  <figcaption><code>tiles</code>: the 228 tiles of <code>fill_region((0, 0, 10, 6), n_tiles=200)</code>. The dashed rectangle is the region.</figcaption>
+</figure>
 
 The tile size and position are set by the call; the returned `tiles.tiling` is the tiling with that frame.
 
@@ -76,6 +94,12 @@ inside = tiles.select(tiles.centroids[:, 0] < 5)
 print(len(inside) < len(tiles))  # True
 ```
 
+<figure markdown="span">
+  ![The same hexagonal patch as before with the tiles of the left half in amber and the others in light blue.](assets/figures/quickstart-select-light.svg#only-light)
+  ![The same hexagonal patch as before with the tiles of the left half in amber and the others in light blue.](assets/figures/quickstart-select-dark.svg#only-dark)
+  <figcaption><code>inside</code>, in amber: the tiles of <code>tiles</code> with a centroid left of x = 5.</figcaption>
+</figure>
+
 ## Adjacency
 
 `adjacency(kind)` returns a scipy sparse boolean matrix of shape `(n, n)`; entry `(i, j)` is true when tile `j` is a
@@ -92,6 +116,12 @@ for kind in ("edge", "vertex", "vertex-only"):
     counts = [len(grid.neighbors(i, kind)) for i in range(len(grid))]
     print(kind, max(counts))  # edge 4, vertex 8, vertex-only 4
 ```
+
+<figure markdown="span">
+  ![Left: a corner of the hexagonal patch with one amber tile and its three blue edge neighbors. Right: a 4 by 4 grid of squares with an inner tile in amber, its four edge neighbors in blue and its four vertex-only neighbors in green.](assets/figures/quickstart-adjacency-light.svg#only-light)
+  ![Left: a corner of the hexagonal patch with one amber tile and its three blue edge neighbors. Right: a 4 by 4 grid of squares with an inner tile in amber, its four edge neighbors in blue and its four vertex-only neighbors in green.](assets/figures/quickstart-adjacency-dark.svg#only-dark)
+  <figcaption>Left: tile 0 of <code>tiles</code> and <code>tiles.neighbors(0, "edge")</code>. Right: an inner tile of <code>grid</code> with its edge and vertex-only neighbors.</figcaption>
+</figure>
 
 [Adjacency](adjacency.md) describes how the tables work and how to compute the adjacency of any set of polygons.
 
@@ -170,3 +200,9 @@ position. To fill a region with rotated tiles, rotate the tiling first.
 rotated_tiles = IsohedralTiling.square().rotated(30).fill_region((0, 0, 10, 6), n_tiles=60)
 print(len(rotated_tiles))  # 84
 ```
+
+<figure markdown="span">
+  ![A patch of squares rotated by 30 degrees in two blue tints that covers a dashed rectangle.](assets/figures/quickstart-frames-light.svg#only-light)
+  ![A patch of squares rotated by 30 degrees in two blue tints that covers a dashed rectangle.](assets/figures/quickstart-frames-dark.svg#only-dark)
+  <figcaption><code>rotated_tiles</code>: the square tiling rotated by 30 degrees, filled into the region <code>(0, 0, 10, 6)</code>.</figcaption>
+</figure>

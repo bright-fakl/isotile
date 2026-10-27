@@ -42,6 +42,22 @@ def test_pages_with_code_are_listed():
     assert not untested, f"pages with Python blocks that no test runs: {untested}"
 
 
+def test_figures_exist_have_alt_text_and_are_used():
+    """Every image of the pages resolves and has alt text; every figure file is shown on some page."""
+    figures = DOCS / "assets" / "figures"
+    if not figures.exists():
+        pytest.skip("not a source checkout")
+    shown: set[Path] = set()
+    for page in sorted(DOCS.glob("*.md")):
+        for alt, target in re.findall(r"!\[([^\]]*)\]\(([^)\s]+)\)", page.read_text(encoding="utf-8")):
+            path = (page.parent / target.split("#")[0]).resolve()
+            assert path.exists(), f"{page.name}: {target} does not exist"
+            assert alt.strip(), f"{page.name}: {target} has no alt text"
+            shown.add(path)
+    unused = sorted(p.name for p in figures.glob("*") if p.resolve() not in shown)
+    assert not unused, f"figure files that no page shows: {unused}"
+
+
 def test_api_reference_lists_every_public_name():
     api = DOCS / "api"
     if not api.exists():

@@ -52,6 +52,8 @@ docs = [
     "mkdocstrings[python]>=0.26.1",
     # mkdocstrings builds its code highlighter with the pre-12 signature of pymdownx.highlight.
     "pymdown-extensions>=10.12,<12",
+    # scripts/make_doc_figures.py draws the figures of the documentation.
+    "matplotlib>=3.8",
 ]
 
 [tool.uv]

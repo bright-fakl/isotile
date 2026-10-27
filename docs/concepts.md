@@ -11,6 +11,15 @@ numbers.
 A type fixes how the prototile is built from vertices, which of its edges are related by the symmetries, and how the
 copies are placed. It does not fix the size of the prototile: most types have free parameters that move its vertices.
 
+The constructors `IsohedralTiling.square`, `hexagon`, `triangle` and `quadrilateral` build tilings of four common
+families, which are the types 76, 20, 84 and 46.
+
+<figure markdown="span">
+  ![Four tilings: squares (IH76), regular hexagons (IH20), triangles (IH84) and irregular quadrilaterals (IH46). One tile of each is amber.](assets/figures/concepts-families-light.svg#only-light)
+  ![Four tilings: squares (IH76), regular hexagons (IH20), triangles (IH84) and irregular quadrilaterals (IH46). One tile of each is amber.](assets/figures/concepts-families-dark.svg#only-dark)
+  <figcaption>The four families of the named constructors, with their type numbers.</figcaption>
+</figure>
+
 ## Free parameters
 
 A type has between 0 and 6 parameters (`TilingType.n_params`). Each vertex of the prototile is an affine function of
@@ -23,11 +32,23 @@ with the edges at fault. `TilingType.safe_ranges` gives for each parameter the i
 the prototile stays valid while the other parameters keep their defaults. It is a one-parameter slice, not the valid
 region; the test for a combination of values is `check_prototile`.
 
+<figure markdown="span">
+  ![Four tilings of type IH28 with different parameters. The pentagon at the default parameters becomes wider, then a skewed quadrilateral-like shape, then a tall pentagon.](assets/figures/concepts-parameters-light.svg#only-light)
+  ![Four tilings of type IH28 with different parameters. The pentagon at the default parameters becomes wider, then a skewed quadrilateral-like shape, then a tall pentagon.](assets/figures/concepts-parameters-dark.svg#only-dark)
+  <figcaption>Type IH28 at the parameters [0.45, 0.50] (default), [0.80, 0.50], [0.20, 0.15] and [0.45, 0.90]. The tiling stays isohedral; only the shape of the tile changes.</figcaption>
+</figure>
+
 ## The lattice, cells and aspects
 
 The translation symmetries of the tiling form a lattice spanned by two vectors, `translation_u` and `translation_v`.
 The parallelogram spanned by the vectors, translated to a lattice point, is a cell. A cell is identified by two
 integers `(u, v)`: its origin is `u * translation_u + v * translation_v`.
+
+<figure markdown="span">
+  ![A patch of the pentagonal tiling IH28 with a tile in amber. Two arrows from a vertex of that tile are labeled translation_u and translation_v; a dashed parallelogram spanned by them is the cell. The four tiles of the cell are amber.](assets/figures/concepts-lattice-light.svg#only-light)
+  ![A patch of the pentagonal tiling IH28 with a tile in amber. Two arrows from a vertex of that tile are labeled translation_u and translation_v; a dashed parallelogram spanned by them is the cell. The four tiles of the cell are amber.](assets/figures/concepts-lattice-dark.svg#only-dark)
+  <figcaption>The cell <code>(0, 0)</code> of IH28. The arrows start at the origin of the amber tile and are <code>translation_u</code> and <code>translation_v</code>; the dashed parallelogram is the cell. The four tiles of the cell are amber, the aspect 0 tile in the darker tint.</figcaption>
+</figure>
 
 A cell holds one or more tiles: `TilingType.n_aspects` of them (between 1 and 12). The index of a tile within its
 cell is its aspect. An aspect is a placement of the prototile, an affine map that can include a rotation or a
@@ -35,6 +56,12 @@ reflection (`TilingType.has_reflections`), and the tile with cell `(u, v)` and a
 
 - the affine map of aspect `a` (`IsohedralTiling.aspects[a]`), followed by
 - the translation by `u * translation_u + v * translation_v`.
+
+<figure markdown="span">
+  ![Two panels. IH28: four pentagons numbered 0 to 3, each in its own color, form one cell. IH29: four tiles numbered 0 to 3, one of them mirrored. A dashed parallelogram marks the cell.](assets/figures/concepts-aspects-light.svg#only-light)
+  ![Two panels. IH28: four pentagons numbered 0 to 3, each in its own color, form one cell. IH29: four tiles numbered 0 to 3, one of them mirrored. A dashed parallelogram marks the cell.](assets/figures/concepts-aspects-dark.svg#only-dark)
+  <figcaption>The tiles of the cell <code>(0, 0)</code>, one color per aspect and labeled with the aspect index. IH28 has 4 aspects without reflections; IH29 has 4 aspects and <code>has_reflections</code> is true. The dashed parallelogram is the cell.</figcaption>
+</figure>
 
 A `TileSet` stores exactly this: `cell` has shape `(n, 2)`, `aspect` has shape `(n,)` and `transforms` has shape
 `(n, 2, 3)`, the affine map of the prototile onto each tile. Two tiles are the same tile when cell and aspect agree. The

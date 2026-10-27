@@ -61,6 +61,21 @@ The API reference is generated from the docstrings (numpy style) by mkdocstrings
 `isotile.__all__` needs an entry in `docs/api/`. Code in the pages `index.md`, `quickstart.md`, `concepts.md` and
 `adjacency.md` fenced as `python` is executed by the tests; use `text` or `bash` for code that must not run.
 
+## Regenerate the figures
+
+The figures of the pages are SVG files in `docs/assets/figures/`, drawn by `scripts/make_doc_figures.py` with matplotlib
+(docs group). Each figure has a light and a dark variant; the pages show the variant of the active color scheme with the
+`#only-light` and `#only-dark` URL fragments. Where a figure illustrates a code block of a page, the script runs the
+blocks of the page up to that block, so the figure shows what the code produces.
+
+```bash
+uv run --group docs python scripts/make_doc_figures.py           # write the files
+uv run --group docs python scripts/make_doc_figures.py --check   # fail if a stored file is out of date
+```
+
+The output is deterministic for a given matplotlib version. A figure is a function in the script; add it to `FIGURES`
+and reference both variants in the page.
+
 ## Benchmarks
 
 ```bash

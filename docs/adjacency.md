@@ -10,6 +10,12 @@ Two tiles of a tiling are adjacent in one of three ways:
 
 `"vertex"` is the union of `"edge"` and `"vertex-only"`. The kinds are the type `AdjacencyKind`.
 
+<figure markdown="span">
+  ![Two panels. Squares: an amber tile with four blue edge neighbors and four green vertex-only neighbors. IH28: an amber pentagon with five blue edge neighbors and two green vertex-only neighbors.](assets/figures/adjacency-neighbors-light.svg#only-light)
+  ![Two panels. Squares: an amber tile with four blue edge neighbors and four green vertex-only neighbors. IH28: an amber pentagon with five blue edge neighbors and two green vertex-only neighbors.](assets/figures/adjacency-neighbors-dark.svg#only-dark)
+  <figcaption>One tile (amber), its edge neighbors (blue) and its vertex-only neighbors (green) in the square tiling and in IH28. The number of neighbors depends on the type and the aspect.</figcaption>
+</figure>
+
 ## The lattice table
 
 In an isohedral tiling the neighbors of a tile depend only on the aspect of the tile, not on its cell. Every type
@@ -22,6 +28,12 @@ aspect, d_cell_u, d_cell_v, neighbor_aspect, kind
 A tile with cell `(u, v)` and the given aspect has a neighbor with cell `(u + d_cell_u, v + d_cell_v)` and aspect
 `neighbor_aspect`. `kind` is 0 if the two tiles share an edge and 1 if they share a vertex only. The table is symmetric:
 if tile A lists tile B, tile B lists tile A.
+
+<figure markdown="span">
+  ![A pentagonal tiling with an amber tile labeled cell (0, 0), aspect 0, surrounded by its seven neighbors. Each neighbor is labeled with its cell offset and its aspect; five are blue and two are green.](assets/figures/adjacency-offsets-light.svg#only-light)
+  ![A pentagonal tiling with an amber tile labeled cell (0, 0), aspect 0, surrounded by its seven neighbors. Each neighbor is labeled with its cell offset and its aspect; five are blue and two are green.](assets/figures/adjacency-offsets-dark.svg#only-dark)
+  <figcaption>The rows of <code>get_type(28).adjacency</code> for aspect 0: each neighbor is labeled with <code>(d_cell_u, d_cell_v)</code> and <code>neighbor_aspect</code>. Edge neighbors (<code>kind</code> 0) are blue, vertex-only neighbors (<code>kind</code> 1) are green.</figcaption>
+</figure>
 
 The offsets are in cell coordinates and the aspect is an index, so the table does not depend on the parameters, the
 scale or the frame of the tiling, or on where the tiles are. Two tilings of the same type with different parameters,
@@ -63,6 +75,12 @@ only = tiles.adjacency("vertex-only")
 print(edge.toarray().astype(int))
 print(only.toarray().astype(int))
 ```
+
+<figure markdown="span">
+  ![Left: five squares numbered 0 to 4; tiles 0 to 3 form a 2 by 2 block and tile 4 is apart. Right: the 5 by 5 matrix with entries 0-1, 0-2, 1-3 and 2-3 and their mirror entries blue for edge neighbors, entries 0-3 and 1-2 and their mirrors green for vertex-only, and row and column 4 empty.](assets/figures/adjacency-matrix-light.svg#only-light)
+  ![Left: five squares numbered 0 to 4; tiles 0 to 3 form a 2 by 2 block and tile 4 is apart. Right: the 5 by 5 matrix with entries 0-1, 0-2, 1-3 and 2-3 and their mirror entries blue for edge neighbors, entries 0-3 and 1-2 and their mirrors green for vertex-only, and row and column 4 empty.](assets/figures/adjacency-matrix-dark.svg#only-dark)
+  <figcaption>The tiles of the worked example and the matrices <code>edge</code> (blue) and <code>only</code> (green) as one grid. Row and column <code>i</code> are tile <code>i</code>; both matrices are symmetric with an empty diagonal.</figcaption>
+</figure>
 
 Tile 0 (cell `(0, 0)`) has edge neighbors 1 and 2 (cells `(1, 0)` and `(0, 1)`) and the vertex-only neighbor 3 (cell
 `(1, 1)`). The tile at `(3, 3)` has no neighbor in the set. The same cells and aspects on a scaled and rotated tiling
