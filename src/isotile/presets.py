@@ -32,6 +32,7 @@ _SQUARE_KNOB = [
     (1, 0),
 ]
 _WAVE_5 = [(0, 0), (0.25, 0.12), (0.5, 0), (0.75, -0.12), (1, 0)]
+_WAVE_5_LARGE = [(0, 0), (0.25, 0.15), (0.5, 0), (0.75, -0.15), (1, 0)]
 _BULGE_5 = [(0, 0), (0.25, 0.08), (0.5, 0.12), (0.75, 0.08), (1, 0)]
 
 # name -> configuration; the keys of a configuration are the arguments of IsohedralTiling.
@@ -87,7 +88,7 @@ _PRESETS: dict[str, dict[str, Any]] = {
     },
     "wavy_triangle": {
         "type": 84,
-        "edge_curves": {0: _WAVE_5, 1: _WAVE_5, 2: _WAVE_5},
+        "edge_curves": {0: _WAVE_5_LARGE, 1: _WAVE_5_LARGE, 2: _WAVE_5_LARGE},
         "description": "IH84. Triangle with S-shaped wavy edges; 2 aspects related by a rotation of 180 degrees.",
     },
     "interlocking_hexagon": {

@@ -165,3 +165,29 @@ def test_polygons_need_shapely_message(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", fake_import)
     with pytest.raises(ImportError, match=r"isotile\[shapely\]"):
         IsohedralTiling.square().cover((0, 0, 1, 1)).polygons()
+
+
+def key(tiles):
+    return {(int(u), int(v), int(a)) for (u, v), a in zip(tiles.cell, tiles.aspect, strict=True)}
+
+
+@pytest.mark.parametrize("number", [1, 7, 10, 28, 41, 84])
+def test_symmetric_expansion_keeps_the_lattice(number):
+    # the lattice is anchored at the region center: the tiles of a region are tiles of its symmetric expansion
+    tiling = IsohedralTiling(number)
+    bounds = (3.0, -2.0, 6.0, 1.5)
+    inner = tiling.fill_region(bounds, tile_size=0.4)
+    expansion = 1.5 * 0.4
+    outer = tiling.fill_region(
+        (bounds[0] - expansion, bounds[1] - expansion, bounds[2] + expansion, bounds[3] + expansion), tile_size=0.4
+    )
+    assert key(inner) <= key(outer)
+    assert len(key(outer)) > len(key(inner))
+
+
+@pytest.mark.parametrize("constructor", ["square", "hexagon"])
+def test_symmetric_expansion_keeps_the_lattice_of_square_and_hexagon(constructor):
+    tiling = getattr(IsohedralTiling, constructor)()
+    inner = tiling.fill_region((0.3, 0.1, 5.1, 3.9), tile_size=0.5)
+    outer = tiling.fill_region((0.3 - 0.75, 0.1 - 0.75, 5.1 + 0.75, 3.9 + 0.75), tile_size=0.5)
+    assert key(inner) <= key(outer)

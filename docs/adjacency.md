@@ -59,7 +59,8 @@ aspects without a tiling object.
 The result is a `scipy.sparse.csr_array` of dtype `bool` and shape `(n, n)`, with `n` the number of tiles. Row and column
 `i` refer to tile `i` of the tile set, in the order of `TileSet.cell`. The matrix is symmetric and its diagonal is empty.
 The indices of the neighbors of tile `i` are `adjacency.indices[adjacency.indptr[i]:adjacency.indptr[i + 1]]`, which
-`TileSet.neighbors(i, kind)` returns sorted.
+`TileSet.neighbors(i, kind)` returns sorted. Each call builds the whole matrix; `TileSet.neighbor_lists(kind)` returns the
+sorted neighbors of all tiles from one matrix.
 
 ## Worked example
 

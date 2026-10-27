@@ -74,3 +74,39 @@ def test_neighbors_of_one_tile():
 def test_adjacency_kind_is_validated():
     with pytest.raises(ValueError, match="kind"):
         IsohedralTiling(7).cover((-3, -3, 3, 3)).adjacency("corner")
+
+
+@pytest.mark.parametrize("number", [1, 7, 28])
+@pytest.mark.parametrize("kind", ["edge", "vertex", "vertex-only"])
+def test_neighbor_lists_equal_neighbors(number, kind):
+    tiles = patch(IsohedralTiling(number))
+    lists = tiles.neighbor_lists(kind)
+    assert len(lists) == len(tiles)
+    for i in range(0, len(tiles), 7):
+        assert lists[i].dtype == np.int64
+        np.testing.assert_array_equal(lists[i], tiles.neighbors(i, kind))
+    assert all(np.all(np.diff(a) > 0) for a in lists)
+
+
+def test_neighbor_lists_default_kind_is_edge():
+    tiles = patch(IsohedralTiling(7))
+    for a, b in zip(tiles.neighbor_lists(), tiles.neighbor_lists("edge"), strict=True):
+        np.testing.assert_array_equal(a, b)
+
+
+def test_neighbor_lists_of_empty_and_single_tile_sets():
+    tiles = IsohedralTiling.square().cover((0, 0, 3, 3))
+    assert tiles.select(np.zeros(len(tiles), dtype=bool)).neighbor_lists() == []
+    single = tiles.select(np.array([0]))
+    assert [len(a) for a in single.neighbor_lists()] == [0]
+
+
+def test_neighbor_lists_of_10000_tiles_are_fast():
+    import time
+
+    tiles = IsohedralTiling.hexagon().fill_region((-1, -1, 1, 1), n_tiles=10000)
+    assert len(tiles) >= 10000
+    start = time.perf_counter()
+    lists = tiles.neighbor_lists()
+    assert time.perf_counter() - start < 0.1
+    assert len(lists) == len(tiles)

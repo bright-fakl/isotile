@@ -5,6 +5,25 @@ All notable changes to isotile are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The `wavy_triangle` preset has the curve amplitude 0.15 again (0.12 before), as in the carto-flow preset of the same
+  name; a test compares all 15 presets with `tests/data/carto_flow_presets.json`, which
+  `scripts/make_carto_flow_presets_fixture.py` regenerates.
+- `IsohedralTiling.cover` (and so `fill_region`) measures the overlap areas relative to the center of the region.
+  Far from the origin the rounding error of the absolute coordinates could drop tiles whose overlap is real (holes in
+  triangle tilings at a distance of 1e6 with tiles of size 0.25) or count a tile that only touches the region.
+
+### Added
+
+- `TileSet.neighbor_lists(kind="edge")`: the sorted neighbors of every tile from one adjacency matrix; `neighbors(i)`
+  builds the matrix on every call.
+
+### Documentation
+
+- `fill_region` states that the lattice is anchored at the region center, so a region expanded by the same amount on
+  all sides keeps the lattice.
+
 ### Edge curves
 
 - `IsohedralTiling(..., edge_curves=, edge_curve_modes=)`: curves on the canonical edge per edge shape id, with

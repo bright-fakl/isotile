@@ -521,7 +521,11 @@ class IsohedralTiling:
             & (v[:, :, 1].min(axis=1) < y1)
         )
         keep = np.zeros(len(tiles), dtype=bool)
-        keep[candidate] = _overlap_area(v[candidate], (x0, y0, x1, y1)) > _MIN_OVERLAP * self.area
+        # areas are measured relative to the center of the region: the rounding error of the clipped areas grows
+        # with the square of the distance from the origin and would otherwise drop tiles far from it
+        center = np.array([(x0 + x1) / 2.0, (y0 + y1) / 2.0])
+        local = (x0 - center[0], y0 - center[1], x1 - center[0], y1 - center[1])
+        keep[candidate] = _overlap_area(v[candidate] - center, local) > _MIN_OVERLAP * self.area
         return tiles.select(keep)
 
     def fill_region(
@@ -537,6 +541,10 @@ class IsohedralTiling:
         The tile area is the area of the straight prototile. The frame of this tiling gives the orientation (its
         linear part is scaled by ``tile_size / sqrt(area)``); its own scale and position are replaced: the type's
         native origin is placed at the center of the region.
+
+        The lattice is anchored at the center of the region (after the margin is applied). A region that is expanded
+        by the same amount on all four sides therefore keeps the lattice at the same tile size: every tile of the
+        region is a tile of the expanded region.
 
         Parameters
         ----------
@@ -831,7 +839,30 @@ class TileSet:
             Index of the tile in this tile set.
         kind : {"edge", "vertex", "vertex-only"}, default "edge"
             Kind of adjacency, see [`adjacency`][isotile.TileSet.adjacency].
+
+        Notes
+        -----
+        Each call builds the adjacency matrix of the whole tile set. For the neighbors of many tiles use
+        [`neighbor_lists`][isotile.TileSet.neighbor_lists], which builds it once.
         """
         adj = self.adjacency(kind)
         neighbors: IntArray = np.sort(adj.indices[adj.indptr[i] : adj.indptr[i + 1]]).astype(np.int64)
         return neighbors
+
+    def neighbor_lists(self, kind: AdjacencyKind = "edge") -> list[IntArray]:
+        """Sorted indices of the adjacent tiles of every tile, from one adjacency matrix.
+
+        Parameters
+        ----------
+        kind : {"edge", "vertex", "vertex-only"}, default "edge"
+            Kind of adjacency, see [`adjacency`][isotile.TileSet.adjacency].
+
+        Returns
+        -------
+        list of (k,) int arrays
+            Entry ``i`` equals ``neighbors(i, kind)``; the list is empty for an empty tile set.
+        """
+        adj = self.adjacency(kind)
+        adj.sort_indices()
+        indices = adj.indices.astype(np.int64)
+        return list(np.split(indices, adj.indptr[1:-1])) if len(self) else []

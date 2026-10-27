@@ -80,3 +80,31 @@ def test_cover_never_includes_a_tile_that_misses_the_rectangle():
     tiles = tiling.cover((0.0, 0.0, 3.0, 2.0))
     box = shapely.box(0, 0, 3, 2)
     assert all(p.intersects(box) for p in tiles.polygons())
+
+
+def test_square_tiling_on_tile_edges_far_from_the_origin():
+    # the boundary of the region lies on tile edges: 12 x 12 tiles at any distance
+    for c in (0.0, 1e3, 1e5, 1e6):
+        region = (c - 1.2, c - 1.2, c + 1.2, c + 1.2)
+        assert len(IsohedralTiling.square().fill_region(region, tile_size=0.2)) == 144
+
+
+def test_no_holes_far_from_the_origin():
+    import shapely
+    from shapely.geometry import Polygon
+
+    rng = np.random.default_rng(0)
+    shapes = []
+    while len(shapes) < 100:
+        p = rng.uniform(-1, 1, (3, 2))
+        if Polygon(p).area > 0.02:
+            shapes.append(p)
+    c = 1e6
+    region = (c - 1, c - 1, c + 1, c + 1)
+    points = shapely.points(np.random.default_rng(5).uniform(region[:2], region[2:], (20000, 2)))
+    for pts in shapes:
+        unit = pts - Polygon(pts).centroid.coords[0]
+        unit /= np.sqrt(Polygon(unit).area)
+        polygons = IsohedralTiling.triangle(unit).fill_region(region, tile_size=0.25).polygons()
+        covered = np.unique(shapely.STRtree(polygons).query(points, predicate="within")[0])
+        assert len(covered) == len(points)

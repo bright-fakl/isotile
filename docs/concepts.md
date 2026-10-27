@@ -149,6 +149,8 @@ Three methods turn a rectangle into a `TileSet`:
     is `n_tiles` and the tiles along the boundary that reach in come on top. With `tile_size`, the tile area is
     `tile_size ** 2`. The orientation of the frame (its linear part up to scale) is kept; the native origin is placed
     at the center of the region. The tile set is `cover` of the region, so it always covers it.
+    Because the lattice is anchored at the center of the region, a region that is expanded by the same amount on all
+    four sides keeps the lattice at the same tile size: every tile of the region is a tile of the expanded region.
 
 For the tiles of a given tiling at its own scale, use `cover`; use `fill_region` when the tile count or size is the
 quantity to set.
