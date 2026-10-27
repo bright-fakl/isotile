@@ -5,6 +5,14 @@ All notable changes to isotile are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- Documentation site built with mkdocs-material and mkdocstrings (home, quickstart, concepts, adjacency, API
+  reference, development, changelog), deployed to GitHub Pages at https://bright-fakl.github.io/isotile/. The tests run
+  the code in the pages and check that every public name is in the API reference. Docstrings use the numpy style with
+  cross-references.
+- Dependency group `docs` (`uv sync --group docs`).
+
 ### Added
 
 - The 81 isohedral tiling types of tactile as arrays (`TilingType`, `get_type`, `tiling_types`), with `find_types`,

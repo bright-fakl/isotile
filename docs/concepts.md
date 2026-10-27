@@ -1,0 +1,98 @@
+# Concepts
+
+## Isohedral tilings
+
+A tiling of the plane is isohedral when all its tiles are congruent and the symmetries of the tiling map any tile onto
+any other tile. Each tile is a copy of one shape, the prototile. Grünbaum and Shephard classified the isohedral tilings
+into 93 types, numbered IH1 to IH93. isotile provides the 81 types of
+[tactile](https://github.com/isohedral/tactile), with its numbers and parameter format; `tiling_types()` lists the
+numbers.
+
+A type fixes how the prototile is built from vertices, which of its edges are related by the symmetries, and how the
+copies are placed. It does not fix the size of the prototile: most types have free parameters that move its vertices.
+
+## Free parameters
+
+A type has between 0 and 6 parameters (`TilingType.n_params`). Each vertex of the prototile is an affine function of
+the parameters, so a parameter set determines the outline. Types without parameters, such as the square (IH76) and the
+regular hexagon (IH20), have one fixed shape.
+
+Not every parameter set gives a prototile that can be drawn: the outline can cross itself or collapse. The
+constructor of `IsohedralTiling` raises `ValueError` for such a set, and `check_prototile` returns a `PrototileReport`
+with the edges at fault. `TilingType.safe_ranges` gives for each parameter the interval around the default in which
+the prototile stays valid while the other parameters keep their defaults. It is a one-parameter slice, not the valid
+region; the test for a combination of values is `check_prototile`.
+
+## The lattice, cells and aspects
+
+The translation symmetries of the tiling form a lattice spanned by two vectors, `translation_u` and `translation_v`.
+The parallelogram spanned by the vectors, translated to a lattice point, is a cell. A cell is identified by two
+integers `(u, v)`: its origin is `u * translation_u + v * translation_v`.
+
+A cell holds one or more tiles: `TilingType.n_aspects` of them (between 1 and 12). The index of a tile within its
+cell is its aspect. An aspect is a placement of the prototile, an affine map that can include a rotation or a
+reflection (`TilingType.has_reflections`), and the tile with cell `(u, v)` and aspect `a` is the prototile mapped by
+
+- the affine map of aspect `a` (`IsohedralTiling.aspects[a]`), followed by
+- the translation by `u * translation_u + v * translation_v`.
+
+A `TileSet` stores exactly this: `cell` has shape `(n, 2)`, `aspect` has shape `(n,)` and `transforms` has shape
+`(n, 2, 3)`, the affine map of the prototile onto each tile. Two tiles are the same tile when cell and aspect agree. The
+tiles that `cover` and `fill_region` return are sorted by `u`, then `v`, then aspect, and `IsohedralTiling.tiles(cell,
+aspect)` builds the tiles of given cells and aspects directly.
+
+## The straight prototile and edge shapes
+
+isotile works with the straight prototile: the polygon through the vertices of the type, with straight edges.
+`IsohedralTiling.vertices`, `prototile()` and `TileSet.vertices()` are this polygon, and so is the polygon that
+validity (`check_prototile`) and the area are measured on.
+
+The edges of the prototile can be replaced by curves without breaking the tiling, as long as the curves obey the
+constraint of the edge shape. Each edge has one of four shapes (`TilingType.edge_shapes`):
+
+| Shape | Constraint on the curve |
+|---|---|
+| `I` | Straight; the edge cannot be changed. |
+| `J` | Free curve. |
+| `U` | Mirror symmetric about the perpendicular bisector of the edge. |
+| `S` | Symmetric under a rotation by 180 degrees about the midpoint of the edge. |
+
+Edges that belong together share a shape id (`TilingType.edge_shape_ids`): the edges of one id have the same curve,
+possibly traversed in the opposite direction (`IsohedralTiling.edge_reversed`). `IsohedralTiling.edge_transforms` maps
+the canonical edge from `(0, 0)` to `(1, 0)` onto each edge of the prototile (in world coordinates), so a curve defined
+on the canonical edge can be placed on the edge.
+
+## Frames
+
+The vertices, translations and aspects of a type are defined in its native coordinates. The frame of an
+`IsohedralTiling` is an affine map of shape `(2, 3)` from the native coordinates to world coordinates: it scales,
+rotates, reflects and positions the tiling. It is applied to the vertices, the translation vectors, the aspects and
+the edges, so everything derived from the tiling is in world coordinates. The default frame is the identity. The frame
+does not change which parameter sets are valid or which tiles are adjacent.
+
+`rotated(angle_degrees)` and `scaled(factor)` return copies with the frame composed with a rotation or scaling about
+the world origin; `with_frame(frame)` replaces it.
+
+## Selecting the tiles of a region
+
+Three methods turn a rectangle into a `TileSet`:
+
+`fill(bounds)`
+:   The scanline fill of tactile. Every cell whose origin lies in the rectangle contributes all its aspects, in
+    scanline order. Tiles near the boundary can reach outside the rectangle, and tiles outside it can reach in, so
+    the result does not guarantee that the rectangle is covered.
+
+`cover(bounds)`
+:   Every tile whose polygon overlaps the rectangle with positive area, exactly. A tile that only touches the
+    rectangle at a point or along an edge is not included. The rectangle must have positive width and height.
+
+`fill_region(bounds, n_tiles=... | tile_size=..., margin=...)`
+:   Sets the scale and position of the frame from the region and calls `cover`. The region is `bounds`, grown by
+    `margin` times its width on the left and right and by `margin` times its height at the top and bottom. With
+    `n_tiles`, the tile area is the region area divided by `n_tiles`, so the number of tiles that fit into the region
+    is `n_tiles` and the tiles along the boundary that reach in come on top. With `tile_size`, the tile area is
+    `tile_size ** 2`. The orientation of the frame (its linear part up to scale) is kept; the native origin is placed
+    at the center of the region. The tile set is `cover` of the region, so it always covers it.
+
+For the tiles of a given tiling at its own scale, use `cover`; use `fill_region` when the tile count or size is the
+quantity to set.
