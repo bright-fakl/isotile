@@ -16,6 +16,9 @@ All notable changes to isotile are documented here. The format follows
 
 ### Added
 
+- `cover(bounds, outline="straight")` and `fill_region(..., outline="straight")`: with `outline="curved"` the tiles
+  are selected by the overlap of their curved polygon with the region, so the region is covered completely at
+  `margin=0` for tilings with edge curves. The default `"straight"` is unchanged.
 - `TileSet.neighbor_lists(kind="edge")`: the sorted neighbors of every tile from one adjacency matrix; `neighbors(i)`
   builds the matrix on every call.
 

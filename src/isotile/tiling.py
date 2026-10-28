@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from scipy.sparse import csr_array
 
 Bounds = tuple[float, float, float, float]
+Outline = Literal["straight", "curved"]
 _MIN_OVERLAP = 1e-9  # smallest overlap area counted by cover, as a fraction of the tile area
 Array = NDArray[np.float64]
 IntArray = NDArray[np.int64]
@@ -476,13 +477,18 @@ class IsohedralTiling:
         origins = _scanline_cells(pts)
         return self.tiles(*_with_aspects(origins, self.type.n_aspects))
 
-    def cover(self, bounds: Bounds) -> TileSet:
-        """All tiles whose straight-edge polygon overlaps the rectangle ``bounds`` with positive area.
+    def cover(self, bounds: Bounds, *, outline: Outline = "straight") -> TileSet:
+        """All tiles whose polygon overlaps the rectangle ``bounds`` with positive area.
 
         Parameters
         ----------
         bounds : (x0, y0, x1, y1)
             The rectangle.
+        outline : {"straight", "curved"}, default "straight"
+            The polygon of a tile that is tested: the straight-edge polygon, or the polygon with the edge curves
+            ([`TileSet.outlines`][isotile.TileSet.outlines] at the default sampling). With ``"curved"`` the tiles
+            cover the rectangle completely, also where the curves of a tile reach into it while its straight
+            polygon does not; the result has the same tiles as ``"straight"`` for a tiling without curves.
 
         Returns
         -------
@@ -493,7 +499,7 @@ class IsohedralTiling:
         ------
         ValueError
             If the rectangle does not have ``x1 > x0`` and ``y1 > y0`` (a region of zero width or height has no
-            positive-area overlap) or has non-finite bounds.
+            positive-area overlap) or has non-finite bounds, or if ``outline`` is not ``"straight"`` or ``"curved"``.
 
         Notes
         -----
@@ -501,19 +507,30 @@ class IsohedralTiling:
         exceed ``1e-9`` times the tile area, which separates real overlaps from rounding errors at contacts. The
         test is exact for any simple polygon, convex or not: after a bounding-box prefilter the polygon is clipped
         against the four sides of the rectangle (Sutherland-Hodgman, vectorized over the tiles) and the area of
-        the result is measured.
+        the result is measured. With ``outline="curved"`` the polygon is the sampled curved outline; the prefilter
+        is the bounding box of the convex hull of the outline; tiles whose hull lies inside the rectangle are kept
+        without clipping, so only the tiles along the boundary of the rectangle are clipped.
         """
         x0, y0, x1, y1 = (float(b) for b in bounds)
         if not (x1 > x0 and y1 > y0 and math.isfinite(x1 - x0) and math.isfinite(y1 - y0)):
             raise ValueError("bounds must be finite with x1 > x0 and y1 > y0")
+        if outline not in ("straight", "curved"):
+            raise ValueError("outline must be 'straight' or 'curved'")
+        curved = outline == "curved" and bool(self._curves)
+        base = self._outline if curved else self._vertices
         corners = self._cell_coordinates(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
-        proto = self._cell_coordinates(np.einsum("aij,vj->avi", self._aspects[:, :, :2], self._vertices))
+        proto = self._cell_coordinates(np.einsum("aij,vj->avi", self._aspects[:, :, :2], base))
         proto += self._cell_coordinates(self._aspects[:, None, :, 2])
         lo = np.floor(corners.min(axis=0) - proto.max(axis=(0, 1))).astype(np.int64)
         hi = np.ceil(corners.max(axis=0) - proto.min(axis=(0, 1))).astype(np.int64)
         i, j = np.meshgrid(np.arange(lo[0], hi[0] + 1), np.arange(lo[1], hi[1] + 1), indexing="ij")
         tiles = self.tiles(*_with_aspects(np.stack([i.ravel(), j.ravel()], axis=1), self.type.n_aspects))
         v = tiles.vertices()
+        if curved:
+            from scipy.spatial import ConvexHull
+
+            hull = base[ConvexHull(base).vertices]  # the bounding box of the hull is that of the curves
+            v = np.einsum("nij,vj->nvi", tiles.transforms[:, :, :2], hull) + tiles.transforms[:, None, :, 2]
         candidate = (
             (v[:, :, 0].max(axis=1) > x0)
             & (v[:, :, 0].min(axis=1) < x1)
@@ -525,7 +542,21 @@ class IsohedralTiling:
         # with the square of the distance from the origin and would otherwise drop tiles far from it
         center = np.array([(x0 + x1) / 2.0, (y0 + y1) / 2.0])
         local = (x0 - center[0], y0 - center[1], x1 - center[0], y1 - center[1])
-        keep[candidate] = _overlap_area(v[candidate] - center, local) > _MIN_OVERLAP * self.area
+        if curved:
+            # tiles whose hull lies inside the rectangle overlap it; only the others need the clipping, in chunks
+            inside = (
+                (v[:, :, 0].min(axis=1) >= x0)
+                & (v[:, :, 0].max(axis=1) <= x1)
+                & (v[:, :, 1].min(axis=1) >= y0)
+                & (v[:, :, 1].max(axis=1) <= y1)
+            )
+            keep[inside] = True
+            edge = np.flatnonzero(candidate & ~inside)
+            for chunk in np.array_split(edge, max(1, len(edge) * len(base) // 200_000)):
+                area = _overlap_area(tiles.select(chunk).outlines() - center, local)
+                keep[chunk] = area > _MIN_OVERLAP * self.area
+        else:
+            keep[candidate] = _overlap_area(v[candidate] - center, local) > _MIN_OVERLAP * self.area
         return tiles.select(keep)
 
     def fill_region(
@@ -536,6 +567,7 @@ class IsohedralTiling:
         tile_size: float | None = None,
         margin: float = 0.0,
         offset: tuple[float, float] = (0.0, 0.0),
+        outline: Outline = "straight",
     ) -> TileSet:
         """Tiles that cover a region, with the tile size set by a tile count or given directly.
 
@@ -563,6 +595,8 @@ class IsohedralTiling:
             The lattice is anchored at the center of the region plus ``u * translation_u + v * translation_v`` of
             the placed tiling, so ``u`` and ``v`` are in multiples of the two translation vectors. Changing ``u``
             or ``v`` by an integer gives the same tile set; a fraction moves the lattice relative to the region.
+        outline : {"straight", "curved"}, default "straight"
+            The polygon of a tile that is tested for overlap, see [`cover`][isotile.IsohedralTiling.cover].
 
         Returns
         -------
@@ -605,7 +639,7 @@ class IsohedralTiling:
         if ou or ov:
             frame[:, 2] += ou * placed.translation_u + ov * placed.translation_v
             placed = self.with_frame(frame)
-        return placed.cover((x0, y0, x1, y1))
+        return placed.cover((x0, y0, x1, y1), outline=outline)
 
 
 def _overlap_area(polygons: Array, bounds: Bounds) -> Array:

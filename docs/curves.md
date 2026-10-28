@@ -132,6 +132,20 @@ print(outlines.shape, len(tiles.adjacency("edge").nonzero()[0]))
   <figcaption>Curved tilings of types IH28 and IH29.</figcaption>
 </figure>
 
+## Tiles at the boundary of a region
+
+`cover` and `fill_region` select tiles by the overlap of their straight polygon with the region. The curves of a tile
+that does not overlap the region can still reach into it, so with `margin=0` the returned tiles can leave slivers
+along the boundary of the region uncovered. With the default margin of 0.1 the slivers lie outside the region proper.
+`outline="curved"` tests the polygon with the edge curves instead: every tile that overlaps the region is returned,
+and the region is covered completely. The option adds the tiles that reach in only through their curves; for a tiling
+without curves it has no effect. It takes longer, because the curved polygons of the tiles along the boundary are
+clipped.
+
+```python
+tiles = curved.fill_region((0, 0, 8, 6), n_tiles=30, outline="curved")
+```
+
 ## Validity
 
 A curved prototile is valid when
