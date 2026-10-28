@@ -138,17 +138,21 @@ Three methods turn a rectangle into a `TileSet`:
     scanline order. Tiles near the boundary can reach outside the rectangle, and tiles outside it can reach in, so
     the result does not guarantee that the rectangle is covered.
 
-`cover(bounds)`
+`cover(bounds, outline=None)`
 :   Every tile whose polygon overlaps the rectangle with positive area, exactly. A tile that only touches the
     rectangle at a point or along an edge is not included. The rectangle must have positive width and height.
+    `outline` sets the polygon of the tile that is tested: `"straight"` is the straight-edge polygon, `"curved"` the
+    polygon with the edge curves, which includes tiles whose curves reach into the rectangle (see
+    [Tiles at the boundary of a region](curves.md#tiles-at-the-boundary-of-a-region)). The default `None` means
+    `"curved"` if the tiling has an edge curve and `"straight"` otherwise.
 
-`fill_region(bounds, n_tiles=... | tile_size=..., margin=...)`
+`fill_region(bounds, n_tiles=... | tile_size=..., margin=..., outline=...)`
 :   Sets the scale and position of the frame from the region and calls `cover`. The region is `bounds`, grown by
     `margin` times its width on the left and right and by `margin` times its height at the top and bottom. With
     `n_tiles`, the tile area is the region area divided by `n_tiles`, so the number of tiles that fit into the region
     is `n_tiles` and the tiles along the boundary that reach in come on top. With `tile_size`, the tile area is
     `tile_size ** 2`. The orientation of the frame (its linear part up to scale) is kept; the native origin is placed
-    at the center of the region. The tile set is `cover` of the region, so it always covers it.
+    at the center of the region. The tile set is `cover` of the region (with the same `outline`), so with `outline=None` or `"curved"` it covers the region completely.
     Because the lattice is anchored at the center of the region, a region that is expanded by the same amount on all
     four sides keeps the lattice at the same tile size: every tile of the region is a tile of the expanded region.
     To anchor the lattice elsewhere, pass `offset=(u, v)`: the anchor is the region center plus
