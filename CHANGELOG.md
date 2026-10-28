@@ -19,6 +19,10 @@ All notable changes to isotile are documented here. The format follows
 - `TileSet.neighbor_lists(kind="edge")`: the sorted neighbors of every tile from one adjacency matrix; `neighbors(i)`
   builds the matrix on every call.
 
+- `IsohedralTiling.fill_region(..., offset=(u, v))`: anchors the lattice at the region center plus
+  `u * translation_u + v * translation_v` of the placed tiling, in one `cover` pass. The default `(0.0, 0.0)` gives the
+  previous result.
+
 ### Documentation
 
 - `fill_region` states that the lattice is anchored at the region center, so a region expanded by the same amount on

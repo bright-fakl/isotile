@@ -535,6 +535,7 @@ class IsohedralTiling:
         n_tiles: int | None = None,
         tile_size: float | None = None,
         margin: float = 0.0,
+        offset: tuple[float, float] = (0.0, 0.0),
     ) -> TileSet:
         """Tiles that cover a region, with the tile size set by a tile count or given directly.
 
@@ -544,7 +545,7 @@ class IsohedralTiling:
 
         The lattice is anchored at the center of the region (after the margin is applied). A region that is expanded
         by the same amount on all four sides therefore keeps the lattice at the same tile size: every tile of the
-        region is a tile of the expanded region.
+        region is a tile of the expanded region. ``offset`` moves the anchor.
 
         Parameters
         ----------
@@ -558,6 +559,10 @@ class IsohedralTiling:
         margin : float, default 0.0
             The region is expanded on every side by ``margin`` times its width (left and right) or height (top and
             bottom).
+        offset : (u, v), default (0.0, 0.0)
+            The lattice is anchored at the center of the region plus ``u * translation_u + v * translation_v`` of
+            the placed tiling, so ``u`` and ``v`` are in multiples of the two translation vectors. Changing ``u``
+            or ``v`` by an integer gives the same tile set; a fraction moves the lattice relative to the region.
 
         Returns
         -------
@@ -569,8 +574,14 @@ class IsohedralTiling:
         ------
         ValueError
             If both or neither of ``n_tiles`` and ``tile_size`` are given, if a value is not positive, if the
-            bounds are empty or if ``margin <= -0.5``.
+            bounds are empty, if ``margin <= -0.5`` or if ``offset`` is not a pair of finite numbers.
         """
+        try:
+            ou, ov = (float(c) for c in offset)
+        except (TypeError, ValueError):
+            raise ValueError("offset must be a pair of finite numbers") from None
+        if not (math.isfinite(ou) and math.isfinite(ov)):
+            raise ValueError("offset must be a pair of finite numbers")
         if (n_tiles is None) == (tile_size is None):
             raise ValueError("give exactly one of n_tiles and tile_size")
         if not margin > -0.5:
@@ -590,7 +601,11 @@ class IsohedralTiling:
             size = float(tile_size)
         factor = size / math.sqrt(self.area)
         frame = np.column_stack([factor * self._frame[:2, :2], [(x0 + x1) / 2.0, (y0 + y1) / 2.0]])
-        return self.with_frame(frame).cover((x0, y0, x1, y1))
+        placed = self.with_frame(frame)
+        if ou or ov:
+            frame[:, 2] += ou * placed.translation_u + ov * placed.translation_v
+            placed = self.with_frame(frame)
+        return placed.cover((x0, y0, x1, y1))
 
 
 def _overlap_area(polygons: Array, bounds: Bounds) -> Array:

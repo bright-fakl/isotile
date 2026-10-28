@@ -191,3 +191,68 @@ def test_symmetric_expansion_keeps_the_lattice_of_square_and_hexagon(constructor
     inner = tiling.fill_region((0.3, 0.1, 5.1, 3.9), tile_size=0.5)
     outer = tiling.fill_region((0.3 - 0.75, 0.1 - 0.75, 5.1 + 0.75, 3.9 + 0.75), tile_size=0.5)
     assert key(inner) <= key(outer)
+
+
+OFFSET_TILINGS = [
+    ("square", IsohedralTiling.square),
+    ("hexagon", IsohedralTiling.hexagon),
+    ("triangle", IsohedralTiling.triangle),
+    ("IH7", lambda: IsohedralTiling(7)),
+    ("IH28", lambda: IsohedralTiling(28)),
+    ("IH84", lambda: IsohedralTiling(84)),
+]
+REGION = (0.3, -0.4, 5.1, 3.9)
+
+
+def geometry(tiles):
+    """Tiles as a sorted list of rounded vertex tuples: independent of the cell indices."""
+    return sorted(tuple(np.round(poly, 7).ravel().tolist()) for poly in tiles.vertices())
+
+
+@pytest.mark.parametrize("make", [m for _, m in OFFSET_TILINGS], ids=[n for n, _ in OFFSET_TILINGS])
+@pytest.mark.parametrize("offset", [(0.3, 0.2), (0.5, 0.5), (-0.17, 0.81)])
+def test_offset_is_periodic_in_u_and_v(make, offset):
+    tiling = make()
+    u, v = offset
+    base = geometry(tiling.fill_region(REGION, tile_size=0.5, offset=offset))
+    for shifted in [(u + 1, v), (u, v + 1), (u + 1, v + 1), (u - 2, v + 3)]:
+        assert geometry(tiling.fill_region(REGION, tile_size=0.5, offset=shifted)) == base
+
+
+@pytest.mark.parametrize("make", [m for _, m in OFFSET_TILINGS], ids=[n for n, _ in OFFSET_TILINGS])
+def test_offset_equals_shifting_the_frame_and_covering(make):
+    tiling = make()
+    u, v = 0.37, -0.64
+    reference = tiling.fill_region(REGION, tile_size=0.5)
+    placed = reference.tiling
+    frame = placed.frame.copy()
+    frame[:2, 2] += u * placed.translation_u + v * placed.translation_v
+    expected = placed.with_frame(frame).cover(REGION)
+    result = tiling.fill_region(REGION, tile_size=0.5, offset=(u, v))
+    assert key(result) == key(expected)
+    assert np.allclose(result.vertices(), expected.vertices())
+
+
+@pytest.mark.parametrize("make", [m for _, m in OFFSET_TILINGS], ids=[n for n, _ in OFFSET_TILINGS])
+def test_default_offset_is_the_previous_output(make):
+    tiling = make()
+    default = tiling.fill_region(REGION, n_tiles=60, margin=0.1)
+    explicit = tiling.fill_region(REGION, n_tiles=60, margin=0.1, offset=(0.0, 0.0))
+    assert key(default) == key(explicit)
+    assert np.array_equal(default.vertices(), explicit.vertices())
+    assert np.array_equal(default.tiling.frame, explicit.tiling.frame)
+
+
+def test_offset_moves_the_lattice():
+    tiling = IsohedralTiling.hexagon()
+    assert key(tiling.fill_region(REGION, tile_size=0.5)) != key(
+        tiling.fill_region(REGION, tile_size=0.5, offset=(0.5, 0.0))
+    )
+
+
+@pytest.mark.parametrize(
+    "offset", [(np.nan, 0.0), (0.0, np.inf), (-np.inf, 0.0), (1.0,), (1.0, 2.0, 3.0), 0.5, "ab", None, (None, 1.0)]
+)
+def test_offset_validation(offset):
+    with pytest.raises(ValueError, match="offset"):
+        IsohedralTiling.square().fill_region(REGION, tile_size=0.5, offset=offset)

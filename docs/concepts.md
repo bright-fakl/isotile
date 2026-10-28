@@ -151,6 +151,10 @@ Three methods turn a rectangle into a `TileSet`:
     at the center of the region. The tile set is `cover` of the region, so it always covers it.
     Because the lattice is anchored at the center of the region, a region that is expanded by the same amount on all
     four sides keeps the lattice at the same tile size: every tile of the region is a tile of the expanded region.
+    To anchor the lattice elsewhere, pass `offset=(u, v)`: the anchor is the region center plus
+    `u * translation_u + v * translation_v` of the placed tiling, and the tiles are selected in one pass. An offset
+    that changes `u` or `v` by an integer gives the same tile set, so `(0.5, 0.5)` is the half-cell shift for every
+    type; an offset in units of the tile size along x and y is not periodic for the hexagon and the triangle tilings.
 
 For the tiles of a given tiling at its own scale, use `cover`; use `fill_region` when the tile count or size is the
 quantity to set.
