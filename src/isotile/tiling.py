@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from scipy.sparse import csr_array
 
 Bounds = tuple[float, float, float, float]
-Outline = Literal["straight", "curved"]
+Outline = Literal["straight", "curved"] | None
 _MIN_OVERLAP = 1e-9  # smallest overlap area counted by cover, as a fraction of the tile area
 Array = NDArray[np.float64]
 IntArray = NDArray[np.int64]
@@ -477,18 +477,20 @@ class IsohedralTiling:
         origins = _scanline_cells(pts)
         return self.tiles(*_with_aspects(origins, self.type.n_aspects))
 
-    def cover(self, bounds: Bounds, *, outline: Outline = "straight") -> TileSet:
+    def cover(self, bounds: Bounds, *, outline: Outline = None) -> TileSet:
         """All tiles whose polygon overlaps the rectangle ``bounds`` with positive area.
 
         Parameters
         ----------
         bounds : (x0, y0, x1, y1)
             The rectangle.
-        outline : {"straight", "curved"}, default "straight"
+        outline : {"straight", "curved", None}, default None
             The polygon of a tile that is tested: the straight-edge polygon, or the polygon with the edge curves
             ([`TileSet.outlines`][isotile.TileSet.outlines] at the default sampling). With ``"curved"`` the tiles
             cover the rectangle completely, also where the curves of a tile reach into it while its straight
-            polygon does not; the result has the same tiles as ``"straight"`` for a tiling without curves.
+            polygon does not. ``None`` means ``"curved"`` if the tiling has an edge curve (any entry of
+            `edge_curves`) and ``"straight"`` otherwise; a tiling without edge curves always takes the straight
+            test, and ``"straight"`` gives the tiles of the straight test for any tiling.
 
         Returns
         -------
@@ -499,7 +501,7 @@ class IsohedralTiling:
         ------
         ValueError
             If the rectangle does not have ``x1 > x0`` and ``y1 > y0`` (a region of zero width or height has no
-            positive-area overlap) or has non-finite bounds, or if ``outline`` is not ``"straight"`` or ``"curved"``.
+            positive-area overlap) or has non-finite bounds, or if ``outline`` is not ``"straight"``, ``"curved"`` or ``None``.
 
         Notes
         -----
@@ -514,9 +516,9 @@ class IsohedralTiling:
         x0, y0, x1, y1 = (float(b) for b in bounds)
         if not (x1 > x0 and y1 > y0 and math.isfinite(x1 - x0) and math.isfinite(y1 - y0)):
             raise ValueError("bounds must be finite with x1 > x0 and y1 > y0")
-        if outline not in ("straight", "curved"):
-            raise ValueError("outline must be 'straight' or 'curved'")
-        curved = outline == "curved" and bool(self._curves)
+        if outline not in ("straight", "curved", None):
+            raise ValueError("outline must be 'straight', 'curved' or None")
+        curved = outline != "straight" and bool(self._curves)
         base = self._outline if curved else self._vertices
         corners = self._cell_coordinates(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]))
         proto = self._cell_coordinates(np.einsum("aij,vj->avi", self._aspects[:, :, :2], base))
@@ -567,7 +569,7 @@ class IsohedralTiling:
         tile_size: float | None = None,
         margin: float = 0.0,
         offset: tuple[float, float] = (0.0, 0.0),
-        outline: Outline = "straight",
+        outline: Outline = None,
     ) -> TileSet:
         """Tiles that cover a region, with the tile size set by a tile count or given directly.
 
@@ -595,8 +597,9 @@ class IsohedralTiling:
             The lattice is anchored at the center of the region plus ``u * translation_u + v * translation_v`` of
             the placed tiling, so ``u`` and ``v`` are in multiples of the two translation vectors. Changing ``u``
             or ``v`` by an integer gives the same tile set; a fraction moves the lattice relative to the region.
-        outline : {"straight", "curved"}, default "straight"
-            The polygon of a tile that is tested for overlap, see [`cover`][isotile.IsohedralTiling.cover].
+        outline : {"straight", "curved", None}, default None
+            The polygon of a tile that is tested for overlap, see [`cover`][isotile.IsohedralTiling.cover]; ``None``
+            selects the curved polygon for a tiling with edge curves.
 
         Returns
         -------

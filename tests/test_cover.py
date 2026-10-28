@@ -128,7 +128,7 @@ def test_curved_outline_covers_the_region_at_margin_zero(name):
         rng = np.random.default_rng(seed)
         x0, y0 = rng.uniform(-5, 5, 2)
         bounds = (x0, y0, x0 + rng.uniform(3, 12), y0 + rng.uniform(3, 12))
-        tiles = tiling.fill_region(bounds, n_tiles=int(rng.integers(20, 300)), outline="curved")
+        tiles = tiling.fill_region(bounds, n_tiles=int(rng.integers(20, 300)))  # the default for a curved tiling
         worst = max(worst, uncovered_fraction(tiles, bounds))
     assert worst < 1e-9
 
@@ -136,7 +136,7 @@ def test_curved_outline_covers_the_region_at_margin_zero(name):
 def test_straight_outline_leaves_slivers_that_curved_covers():
     tiling = IsohedralTiling.from_preset("wavy_triangle")
     bounds = (0.0, 0.0, 10.0, 6.0)
-    straight = tiling.fill_region(bounds, n_tiles=100)
+    straight = tiling.fill_region(bounds, n_tiles=100, outline="straight")
     curved = tiling.fill_region(bounds, n_tiles=100, outline="curved")
     assert uncovered_fraction(straight, bounds) > 1e-3
     assert uncovered_fraction(curved, bounds) < 1e-9
@@ -169,11 +169,34 @@ def test_outline_modes_agree_without_curves(number):
         )
 
 
-def test_default_outline_is_straight():
+def test_default_outline_is_curved_with_curves_and_straight_without(number):
+    from .conftest import random_valid_curved_tiling
+
+    bounds = (0.0, 0.0, 6.0, 4.0)
+    plain = IsohedralTiling(number)
+    assert keys(plain.fill_region(bounds, n_tiles=30)) == keys(
+        plain.fill_region(bounds, n_tiles=30, outline="straight")
+    )
+    curved = random_valid_curved_tiling(number, 0)
+    if curved is not None:
+        assert keys(curved.fill_region(bounds, n_tiles=30)) == keys(
+            curved.fill_region(bounds, n_tiles=30, outline="curved")
+        )
+        assert keys(curved.cover(bounds)) == keys(curved.cover(bounds, outline="curved"))
+
+
+def test_default_on_a_curved_preset_covers_at_margin_zero_and_straight_is_the_former_result():
     tiling = IsohedralTiling.from_preset("puzzle_piece")
-    assert keys(tiling.cover((0, 0, 8, 5))) == keys(tiling.cover((0, 0, 8, 5), outline="straight"))
+    bounds = (0.0, 0.0, 10.0, 6.0)
+    assert len(tiling.fill_region(bounds, n_tiles=100, margin=0.1)) == 126
+    straight = tiling.fill_region(bounds, n_tiles=100, margin=0.1, outline="straight")
+    assert len(straight) == 112
+    assert keys(straight) == keys(tiling.with_edge_curves(None).fill_region(bounds, n_tiles=100, margin=0.1))
+    assert uncovered_fraction(tiling.fill_region(bounds, n_tiles=100), bounds) < 1e-9
+    assert uncovered_fraction(tiling.fill_region(bounds, n_tiles=100, outline="straight"), bounds) > 1e-4
 
 
 def test_invalid_outline():
-    with pytest.raises(ValueError, match="outline"):
-        IsohedralTiling.square().cover((0, 0, 1, 1), outline="rounded")  # type: ignore[arg-type]
+    for bad in ("rounded", "Straight", 1):
+        with pytest.raises(ValueError, match="outline"):
+            IsohedralTiling.square().cover((0, 0, 1, 1), outline=bad)  # type: ignore[arg-type]

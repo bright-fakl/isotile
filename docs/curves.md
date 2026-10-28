@@ -134,16 +134,21 @@ print(outlines.shape, len(tiles.adjacency("edge").nonzero()[0]))
 
 ## Tiles at the boundary of a region
 
-`cover` and `fill_region` select tiles by the overlap of their straight polygon with the region. The curves of a tile
-that does not overlap the region can still reach into it, so with `margin=0` the returned tiles can leave slivers
-along the boundary of the region uncovered. With the default margin of 0.1 the slivers lie outside the region proper.
-`outline="curved"` tests the polygon with the edge curves instead: every tile that overlaps the region is returned,
-and the region is covered completely. The option adds the tiles that reach in only through their curves; for a tiling
-without curves it has no effect. It takes longer, because the curved polygons of the tiles along the boundary are
-clipped.
+`cover` and `fill_region` can select tiles by the overlap of their straight polygon with the region. The curves of a
+tile that does not overlap the region can still reach into it, so with `margin=0` the returned tiles would leave
+slivers along the boundary of the region uncovered. The argument `outline` sets the polygon that is tested.
+`"curved"` tests the polygon with the edge curves: every tile that overlaps the region is returned and the region is
+covered completely. `"straight"` tests the straight polygon. The default `None` means `"curved"` if the tiling has an
+edge curve, that is, `edge_curves` has at least one entry, and `"straight"` otherwise; a tiling without edge curves
+takes the straight test whatever `outline` is.
+
+The curved test returns the tiles that reach into the region only through their curves, also into the margin band at
+the default `margin` of 0.1, and takes longer, because the curved polygons of the tiles along the boundary are
+clipped. `outline="straight"` restores the straight test for a curved tiling.
 
 ```python
-tiles = curved.fill_region((0, 0, 8, 6), n_tiles=30, outline="curved")
+tiles = curved.fill_region((0, 0, 8, 6), n_tiles=30)  # outline="curved" for a tiling with edge curves
+straight_tiles = curved.fill_region((0, 0, 8, 6), n_tiles=30, outline="straight")
 ```
 
 ## Validity
