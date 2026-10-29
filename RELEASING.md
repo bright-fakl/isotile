@@ -22,6 +22,21 @@ second one uploads nothing.
 
 Authentication is trusted publishing (OIDC). The repository holds no PyPI token.
 
+### Environments and refs
+
+- The job `publish-pypi` runs only when `scripts/release_plan.py` returns the target `pypi`, which requires a tag
+  event whose tag is `v` plus the package version of a final version. For any other ref the script exits with an error
+  before the job exists, so the job, and with it the `pypi` environment, is never used on a branch ref. A manual run
+  always targets `testpypi`, also when started on a tag.
+- A `release: published` event runs on the tag ref (`refs/tags/vX.Y.Z`), so the restriction to the tag pattern `v*`
+  admits it, as it admits a pushed tag.
+- `gh release create vX.Y.Z --target <sha>` creates the tag `vX.Y.Z` on that commit (the tag does not need to exist) and
+  publishes the release. The workflow starts on the tag and checks out `<sha>`; `pyproject.toml` at `<sha>` must have
+  the version `X.Y.Z`. Both the tag push and the release event start a run: the first waits for the approval of the
+  `pypi` deployment, the second waits in the concurrency queue, then finds the version on PyPI and uploads nothing, so
+  there is a single approval. A draft release creates the tag only when it is published.
+- The manual dry run from `main` uses `testpypi`, which has no restriction.
+
 ## One-time setup
 
 Done once, before the first release.
@@ -38,9 +53,12 @@ Done once, before the first release.
    | Environment name | `pypi` |
 
 2. **TestPyPI** (optional, for dry runs). The same at <https://test.pypi.org> with the environment name `testpypi`.
-3. **GitHub.** Repository Settings, Environments: create `pypi` and, for dry runs, `testpypi`. Optional: on `pypi`, add
-   yourself under *Required reviewers*, so that each upload waits for an approval, and limit *Deployment branches and
-   tags* to the tag pattern `v*`.
+3. **GitHub.** Repository Settings, Environments:
+
+   | Environment | Protection |
+   | --- | --- |
+   | `pypi` | Required reviewers: the maintainer, so each upload waits for an approval. Deployment branches and tags: *Selected branches and tags* with the tag pattern `v*` only. |
+   | `testpypi` | None (used by the manual dry run from `main`). |
 
 The environment names are part of the trusted publisher on the index; a mismatch gives the error
 `invalid-publisher` in the upload step.
