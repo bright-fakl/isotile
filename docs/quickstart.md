@@ -44,6 +44,9 @@ print(square.type.number, hexagon.type.number)  # 76 20
 print(triangle.prototile())  # (3, 2) outline, counterclockwise
 ```
 
+`repr(tiling)` is the constructor call as Python code (`IsohedralTiling(76, parameters=[], ...)`): evaluating it gives an
+equal tiling.
+
 <figure markdown="span">
   ![Four tilings: squares (IH76), regular hexagons (IH20), triangles (IH84) and irregular quadrilaterals (IH46). One tile of each is amber.](assets/figures/concepts-families-light.svg#only-light)
   ![Four tilings: squares (IH76), regular hexagons (IH20), triangles (IH84) and irregular quadrilaterals (IH46). One tile of each is amber.](assets/figures/concepts-families-dark.svg#only-dark)
@@ -86,6 +89,19 @@ print(tiles.colors()[:6])  # [1 2 1 2 0 1]: color index of the type's coloring
 polygons = tiles.polygons()  # shapely polygons (needs shapely)
 print(len(polygons), round(polygons[0].area, 3))  # 228 0.3
 ```
+
+`tiles.to_geojson()` returns the tiles as a GeoJSON `FeatureCollection` dict without shapely; each feature has the
+`cell`, `aspect` and `color` of the tile as properties, and `properties={"name": values}` adds one value per tile.
+
+```python
+import json
+
+collection = tiles.to_geojson({"index": range(len(tiles))})
+print(collection["features"][0]["properties"])  # {'cell': [...], 'aspect': 0, 'color': 1, 'index': 0}
+text = json.dumps(collection)
+```
+
+`tiles.save_geojson(path)` writes the same dict to a UTF-8 JSON file and takes the same arguments after `path`.
 
 `tiles.select(mask)` returns the subset of tiles for a boolean mask or an index array.
 
@@ -141,7 +157,12 @@ except ValueError as error:
     print(error)
 ```
 
+The error is an `InvalidPrototileError`, a subclass of `ValueError`; its `report` attribute is the `PrototileReport`, so
+`error.report.bad_edges` names the edges at fault without a separate call to `check_prototile`.
+
 Setting `tiling.parameters` follows the same rule and keeps the previous parameters when the new ones are invalid.
+`tiling.with_parameters(values)` returns a new tiling with the other parameters, with the same checks, and leaves
+`tiling` unchanged.
 
 ```python
 tiling.parameters = [0.7, 0.3]

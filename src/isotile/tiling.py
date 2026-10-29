@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -13,7 +14,8 @@ from numpy.typing import ArrayLike, NDArray
 
 from .adjacency import AdjacencyKind, lattice_adjacency
 from .curves import EdgeInfo, check_curves, edge_infos, native_edge_transforms, normalize_curves, outline
-from .prototile import check_prototile, inscribed_circle, polygon_area, polygon_centroid
+from .edges import EdgeShape
+from .prototile import InvalidPrototileError, check_prototile, inscribed_circle, polygon_area, polygon_centroid
 from .types import TilingType, get_type
 
 if TYPE_CHECKING:
@@ -75,10 +77,12 @@ class IsohedralTiling:
     Raises
     ------
     ValueError
-        If the type, the number of parameters or the frame is invalid, if an edge curve is malformed (an id that
-        is not a shape id or belongs to an ``I`` edge, points that do not run from ``(0, 0)`` to ``(1, 0)``), or
-        if the prototile or its outline with the curves is not valid (see
-        [`check_prototile`][isotile.check_prototile]). The parameter setter keeps the previous state in that case.
+        If the type, the number of parameters or the frame is invalid or if an edge curve is malformed (an id that
+        is not a shape id or belongs to an ``I`` edge, points that do not run from ``(0, 0)`` to ``(1, 0)``).
+    InvalidPrototileError
+        If the prototile or its outline with the curves is not valid (see
+        [`check_prototile`][isotile.check_prototile]); it is a `ValueError` and carries the report. The parameter
+        setter keeps the previous state in that case.
     """
 
     _vertices: Array
@@ -99,12 +103,7 @@ class IsohedralTiling:
     ) -> None:
         self.type = tiling_type if isinstance(tiling_type, TilingType) else get_type(tiling_type)
         self._curves = normalize_curves(self.type, edge_curves, edge_curve_modes)
-        f = np.asarray(np.eye(3)[:2] if frame is None else frame, dtype=float)
-        if f.shape != (2, 3) or not np.all(np.isfinite(f)):
-            raise ValueError(f"frame must be a finite (2, 3) array, got shape {f.shape}")
-        if abs(np.linalg.det(f[:, :2])) <= 1e-12 * float(np.abs(f[:, :2]).max()) ** 2:
-            raise ValueError("the linear part of the frame is singular")
-        self._frame = _homogeneous(f)
+        self._frame = _checked_frame(frame)
         self._parameters: Array = np.empty(0)
         self.parameters = self.type.default_params if parameters is None else parameters
 
@@ -173,14 +172,21 @@ class IsohedralTiling:
         return self._frame[:2].copy()
 
     def with_frame(self, frame: ArrayLike) -> IsohedralTiling:
-        """The same type, parameters and edge curves with the frame replaced."""
-        return IsohedralTiling(
-            self.type,
-            self._parameters,
-            edge_curves=self.edge_curves,
-            edge_curve_modes=self.edge_curve_modes,
-            frame=frame,
-        )
+        """The same type, parameters and edge curves with the frame replaced.
+
+        The prototile is not checked again: a frame does not change validity.
+
+        Raises
+        ------
+        ValueError
+            If the frame is not a finite (2, 3) array with a regular linear part.
+        """
+        new = object.__new__(IsohedralTiling)
+        new.type = self.type
+        new._curves = self._curves
+        new._frame = _checked_frame(frame)
+        new._set(self._parameters.copy())
+        return new
 
     def _after(self, m: Array) -> IsohedralTiling:
         return self.with_frame((_homogeneous(m) @ self._frame)[:2])
@@ -198,18 +204,30 @@ class IsohedralTiling:
 
     @property
     def parameters(self) -> Array:
-        """(n_params,) current parameters. Assigning checks the prototile and raises ``ValueError`` if it is invalid."""
+        """(n_params,) current parameters. Assigning checks the prototile and raises `InvalidPrototileError` if it is invalid."""
         return self._parameters.copy()
 
     @parameters.setter
     def parameters(self, value: ArrayLike) -> None:
-        p = np.asarray(value, dtype=float)
-        report = check_prototile(self.type, p)
-        if report.valid and self._curves:
-            report = check_curves(self.type, p, self._curves)
-        if not report.valid:
-            raise ValueError(f"IH{self.type.number}: invalid prototile for parameters {p.tolist()}: {report.message}")
-        self._set(p)
+        self._set(_checked_parameters(self.type, value, self._curves))
+
+    def with_parameters(self, parameters: ArrayLike) -> IsohedralTiling:
+        """The same type, edge curves and frame with the parameters replaced; this tiling is unchanged.
+
+        Raises
+        ------
+        InvalidPrototileError
+            If the prototile or its outline with the curves is not valid at the parameters (a `ValueError`).
+        ValueError
+            If the number of parameters is wrong.
+        """
+        p = _checked_parameters(self.type, parameters, self._curves)
+        new = object.__new__(IsohedralTiling)
+        new.type = self.type
+        new._curves = self._curves
+        new._frame = self._frame
+        new._set(p)
+        return new
 
     def _set(self, p: Array) -> None:
         """Derive vertices, aspects, translations and edge transforms."""
@@ -294,7 +312,9 @@ class IsohedralTiling:
         Raises
         ------
         ValueError
-            As the constructor, if the curves are malformed or the outline is not valid.
+            As the constructor, if the curves are malformed.
+        InvalidPrototileError
+            If the outline is not valid (a `ValueError`).
         """
         return IsohedralTiling(
             self.type, self._parameters, edge_curves=edge_curves, edge_curve_modes=edge_curve_modes, frame=self.frame
@@ -380,6 +400,20 @@ class IsohedralTiling:
     def describe(self) -> str:
         """Human-readable summary of the type with the current parameter values, see [`TilingType.describe`][isotile.TilingType.describe]."""
         return self.type.describe(self._parameters)
+
+    def __repr__(self) -> str:
+        """The constructor call as Python code: ``eval`` of it, with `IsohedralTiling` in scope, gives an equal tiling.
+
+        The curves and modes are listed for the shape ids that have a curve, the frame only if it is not the identity.
+        """
+        args = [str(self.type.number), f"parameters={[float(x) for x in self._parameters]!r}"]
+        if self._curves:
+            curves = {k: [[float(x), float(y)] for x, y in c.points] for k, c in sorted(self._curves.items())}
+            modes = {k: c.mode for k, c in sorted(self._curves.items())}
+            args += [f"edge_curves={curves!r}", f"edge_curve_modes={modes!r}"]
+        if not np.array_equal(self._frame[:2], np.eye(3)[:2]):
+            args.append(f"frame={self._frame[:2].tolist()!r}")
+        return f"IsohedralTiling({', '.join(args)})"
 
     # -- serialization ---------------------------------------------------------------------------
 
@@ -645,6 +679,29 @@ class IsohedralTiling:
         return placed.cover((x0, y0, x1, y1), outline=outline)
 
 
+def _checked_frame(frame: ArrayLike | None) -> Array:
+    """The (3, 3) homogeneous matrix of a frame, or the identity for ``None``; raises ``ValueError`` if invalid."""
+    f = np.asarray(np.eye(3)[:2] if frame is None else frame, dtype=float)
+    if f.shape != (2, 3) or not np.all(np.isfinite(f)):
+        raise ValueError(f"frame must be a finite (2, 3) array, got shape {f.shape}")
+    if abs(np.linalg.det(f[:, :2])) <= 1e-12 * float(np.abs(f[:, :2]).max()) ** 2:
+        raise ValueError("the linear part of the frame is singular")
+    return _homogeneous(f)
+
+
+def _checked_parameters(tiling_type: TilingType, value: ArrayLike, curves: Mapping[int, EdgeShape]) -> Array:
+    """The parameters as an array; raises `InvalidPrototileError` if the prototile or its outline is not valid."""
+    p = np.asarray(value, dtype=float)
+    report = check_prototile(tiling_type, p)
+    if report.valid and curves:
+        report = check_curves(tiling_type, p, curves)
+    if not report.valid:
+        raise InvalidPrototileError(
+            f"IH{tiling_type.number}: invalid prototile for parameters {p.tolist()}: {report.message}", report
+        )
+    return p
+
+
 def _overlap_area(polygons: Array, bounds: Bounds) -> Array:
     """(n,) area of the intersection of each simple polygon (n, k, 2) with the rectangle.
 
@@ -852,6 +909,75 @@ class TileSet:
         except ImportError:
             raise ImportError("TileSet.polygons needs shapely: pip install isotile[shapely]") from None
         return list(shapely.polygons(self.outlines(curved, n_points=n_points)))
+
+    def to_geojson(
+        self,
+        properties: Mapping[str, ArrayLike] | None = None,
+        *,
+        curved: bool = True,
+        n_points: int | None = None,
+    ) -> dict[str, Any]:
+        """The tiles as a GeoJSON ``FeatureCollection`` dict (no shapely needed).
+
+        Each tile is a ``Polygon`` feature whose ring is the tile [`outline`][isotile.TileSet.outlines], closed by
+        repeating the first point and oriented counterclockwise. The properties of a feature are ``cell`` (``[u, v]``),
+        ``aspect`` and ``color`` of the tile, plus the entries of ``properties``. The dict can be passed to
+        ``json.dumps``.
+
+        Parameters
+        ----------
+        properties : mapping of str to (n,) array-like, optional
+            Further properties: the value of each key for the tile ``i`` is element ``i``. A key that is already a
+            property of the tile replaces it.
+        curved : bool, default True
+            Use the curved edges, as in [`outlines`][isotile.TileSet.outlines].
+        n_points : int, optional
+            Samples per spline edge, see [`interpolate`][isotile.interpolate].
+
+        Raises
+        ------
+        ValueError
+            If a value of ``properties`` does not have one element per tile.
+        """
+        extra: dict[str, list[Any]] = {}
+        for key, values in (properties or {}).items():
+            column = np.asarray(values)
+            if column.shape[:1] != (len(self),):
+                raise ValueError(f"properties[{key!r}] must have one element per tile ({len(self)})")
+            extra[str(key)] = column.tolist()
+        rings = self.outlines(curved, n_points=n_points)
+        x, y = rings[:, :, 0], rings[:, :, 1]
+        clockwise = np.sum(x * np.roll(y, -1, axis=1) - np.roll(x, -1, axis=1) * y, axis=1) < 0.0
+        rings = np.where(clockwise[:, None, None], rings[:, ::-1], rings)
+        rings = np.concatenate([rings, rings[:, :1]], axis=1)
+        colors = self.colors().tolist()
+        features = []
+        for i, (ring, cell, aspect) in enumerate(
+            zip(rings.tolist(), self.cell.tolist(), self.aspect.tolist(), strict=True)
+        ):
+            props = {"cell": cell, "aspect": aspect, "color": colors[i]}
+            props.update({key: column[i] for key, column in extra.items()})
+            features.append({
+                "type": "Feature",
+                "properties": props,
+                "geometry": {"type": "Polygon", "coordinates": [ring]},
+            })
+        return {"type": "FeatureCollection", "features": features}
+
+    def save_geojson(
+        self,
+        path: str | Path,
+        properties: Mapping[str, ArrayLike] | None = None,
+        *,
+        curved: bool = True,
+        n_points: int | None = None,
+    ) -> None:
+        """Write [`to_geojson`][isotile.TileSet.to_geojson] as a JSON file (UTF-8, ending with a newline).
+
+        An existing file is overwritten. The arguments are those of `to_geojson`.
+        """
+        data = self.to_geojson(properties, curved=curved, n_points=n_points)
+        Path(path).write_text(json.dumps(data) + "\n", encoding="utf-8")
 
     def colors(self) -> IntArray:
         """(n,) color index of each tile from the type's coloring table."""
