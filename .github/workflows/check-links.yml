@@ -1,0 +1,58 @@
+name: Check links
+
+# External links of the built documentation, README, RELEASING.md and CHANGELOG.md (internal links are checked by the
+# strict mkdocs build). The weekly and manual runs check everything and are the gate; a pull request run checks only the
+# changed Markdown files, skips the documentation site (its pages exist only after the deploy of the PR) and never
+# fails the pull request, because a third-party site can be down.
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "README.md"
+      - "RELEASING.md"
+      - "CHANGELOG.md"
+      - "docs/**/*.md"
+      - "scripts/check_links.py"
+      - "scripts/link_ignore.txt"
+      - ".github/workflows/check-links.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up the environment (with the docs group)
+        uses: ./.github/actions/setup-python-env
+        with:
+          sync-args: --group docs --no-group tactile
+
+      - name: Build the documentation (full runs)
+        if: github.event_name != 'pull_request'
+        run: uv run --no-sync mkdocs build -s -d site
+
+      - name: Check all links (full runs)
+        if: github.event_name != 'pull_request'
+        run: uv run --no-sync python scripts/check_links.py site README.md RELEASING.md CHANGELOG.md --ignore-file scripts/link_ignore.txt
+
+      - name: Check the links of the changed files (pull requests)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          FILES=$(git diff --name-only --diff-filter=AM "$BASE"...HEAD -- README.md RELEASING.md CHANGELOG.md 'docs/*.md' 'docs/**/*.md')
+          if [ -z "$FILES" ]; then
+            echo "No Markdown file with links changed."
+            exit 0
+          fi
+          uv run --no-sync python scripts/check_links.py $FILES --ignore-file scripts/link_ignore.txt \
+            --ignore '^https://bright-fakl\.github\.io/isotile/'

@@ -116,3 +116,5 @@ assert (only_g != only).nnz == 0
 For the tiles of an `IsohedralTiling` the two methods give the same matrices. The lattice method is the one to use for
 tiles of a tiling: it does not depend on a tolerance and does not compare coordinates. The geometric method serves polygons
 that no tiling generated.
+
+The [Benchmark](benchmark.md) page gives the time of both methods at 1,000 to 100,000 tiles.

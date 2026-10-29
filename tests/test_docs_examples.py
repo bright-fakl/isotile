@@ -8,7 +8,7 @@ import pytest
 import isotile
 
 DOCS = Path(__file__).parent.parent / "docs"
-PAGES = ["index.md", "quickstart.md", "concepts.md", "curves.md", "adjacency.md", "development.md"]
+PAGES = ["index.md", "quickstart.md", "concepts.md", "curves.md", "adjacency.md", "migration.md", "development.md"]
 FENCE = re.compile(r"^```(\w*)[^\n]*\n(.*?)^```", re.S | re.M)
 
 
