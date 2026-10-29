@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "docs/**"
+      - "scripts/make_doc_figures.py"
       - "mkdocs.yml"
       - "src/**"
       - "pyproject.toml"
@@ -17,6 +18,7 @@ on:
   pull_request:
     paths:
       - "docs/**"
+      - "scripts/make_doc_figures.py"
       - "mkdocs.yml"
       - "src/**"
       - "pyproject.toml"

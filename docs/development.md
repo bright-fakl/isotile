@@ -60,7 +60,7 @@ uv run mkdocs serve              # live preview at http://127.0.0.1:8000
 
 The API reference is generated from the docstrings (numpy style) by mkdocstrings. A name that is added to
 `isotile.__all__` needs an entry in `docs/api/`. Code in the pages `index.md`, `quickstart.md`, `concepts.md`, `curves.md` and
-`adjacency.md` fenced as `python` is executed by the tests; use `text` or `bash` for code that must not run.
+`adjacency.md` fenced as `python` is executed by the tests; use `text` or `bash` for code that must not run, and `py` for Python that must not run but should be highlighted (the tactile code of `migration.md`). The page `catalog.md` is generated at build time by `docs/hooks.py` and has no file.
 
 ## Regenerate the figures
 
@@ -80,5 +80,9 @@ and reference both variants in the page.
 ## Benchmarks
 
 ```bash
-uv run python benchmarks/bench.py
+uv run python benchmarks/bench.py --markdown            # the tables of the Benchmark page
+uv run python benchmarks/bench.py --markdown --tactile  # with the comparison with tactile
 ```
+
+The script is deterministic apart from the timings and is not part of the default CI; `tests/test_bench.py` runs it at a
+tiny size to keep it working. `benchmarks/bench_curves.py` times the validity test of curved prototiles.

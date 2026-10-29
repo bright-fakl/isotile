@@ -5,6 +5,10 @@
   </picture>
 </h1>
 
+[![PyPI](https://img.shields.io/pypi/v/isotile)](https://pypi.org/project/isotile/)
+[![Python](https://img.shields.io/pypi/pyversions/isotile)](https://pypi.org/project/isotile/)
+[![CI](https://github.com/bright-fakl/isotile/actions/workflows/main.yml/badge.svg)](https://github.com/bright-fakl/isotile/actions/workflows/main.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/bright-fakl/isotile/blob/main/LICENSE)
 [![Docs](https://img.shields.io/badge/docs-bright--fakl.github.io%2Fisotile-blue)](https://bright-fakl.github.io/isotile/)
 
 Documentation: <https://bright-fakl.github.io/isotile/>
@@ -25,6 +29,7 @@ type numbers (IH1 to IH93) and parameter format.
 ```
 pip install isotile            # numpy and scipy
 pip install "isotile[shapely]" # adds TileSet.polygons()
+pip install "isotile[plot]"    # adds isotile.plot (matplotlib)
 ```
 
 Python 3.10 or newer.
@@ -60,6 +65,22 @@ aspect, the index of the tile within the cell. A tile set holds `cell` (n, 2), `
 `IsohedralTiling(type, parameters, frame=...)` takes an affine `frame` that maps the type's native coordinates to
 world coordinates (scale, rotation, reflection, position). `fill_region(bounds, n_tiles=... | tile_size=...,
 margin=...)` computes the frame from a region and a tile count or size.
+
+## Documentation
+
+<https://bright-fakl.github.io/isotile/>: [quickstart](https://bright-fakl.github.io/isotile/quickstart/),
+[catalog of the 81 types](https://bright-fakl.github.io/isotile/catalog/),
+[adjacency](https://bright-fakl.github.io/isotile/adjacency/),
+[edge curves](https://bright-fakl.github.io/isotile/curves/),
+[benchmark](https://bright-fakl.github.io/isotile/benchmark/),
+[migrating from tactile](https://bright-fakl.github.io/isotile/migration/) and the
+[API reference](https://bright-fakl.github.io/isotile/api/).
+
+## Background and citation
+
+The 93 isohedral tiling types were classified by Branko Grünbaum and G. C. Shephard, *Tilings and Patterns* (W. H.
+Freeman, 1987). The type data and the parameter format come from [Tactile / tactile-js](https://github.com/isohedral/tactile)
+by Craig S. Kaplan; if you use isotile in published work, please also cite Tactile and Grünbaum and Shephard.
 
 ## License
 

@@ -6,7 +6,7 @@ Every public name is importable from the top-level package `isotile`; the module
 |---|---|
 | [Tilings and tile sets](tiling.md) | `IsohedralTiling`, `TileSet` |
 | [Tiling types](types.md) | `TilingType`, `get_type`, `tiling_types`, `find_types` |
-| [Prototile validity](prototile.md) | `check_prototile`, `PrototileReport` |
+| [Prototile validity](prototile.md) | `check_prototile`, `PrototileReport`, `InvalidPrototileError` |
 | [Edge curves](edges.md) | `EdgeShape`, `EdgeInfo`, `enforce_symmetry`, `is_symmetric`, `interpolate` |
 | [Presets](presets.md) | `list_presets`, `list_edge_curve_presets`, `edge_curve_preset`, `edge_curves_from_preset` |
 | [Serialization and plotting](io.md) | `isotile.io`, `isotile.plot` |
