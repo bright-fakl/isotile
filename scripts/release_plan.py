@@ -13,18 +13,26 @@ equals ``0.1.0rc1``); otherwise the script exits with an error.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-import tomllib
 from packaging.version import Version
 
 
+def read_version() -> Version:
+    """The static ``version`` of ``pyproject.toml`` (a regular expression: ``tomllib`` needs Python 3.11)."""
+    text = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"', text, re.M)
+    if match is None:
+        sys.exit("no version in pyproject.toml")
+    return Version(match.group(1))
+
+
 def main() -> None:
-    root = Path(__file__).resolve().parent.parent
-    version = Version(tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])
+    version = read_version()
     event, ref_type, ref_name = os.environ["EVENT"], os.environ.get("REF_TYPE", ""), os.environ.get("REF_NAME", "")
 
     if event == "workflow_dispatch":

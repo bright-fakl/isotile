@@ -22,7 +22,7 @@ def plan(monkeypatch, capsys):
         monkeypatch.setenv("EVENT", event)
         monkeypatch.setenv("REF_TYPE", ref_type)
         monkeypatch.setenv("REF_NAME", ref_name)
-        monkeypatch.setattr(module.tomllib, "loads", lambda _: {"project": {"version": version}})
+        monkeypatch.setattr(module, "read_version", lambda: module.Version(version))
         module.main()
         return dict(line.split("=") for line in capsys.readouterr().out.split())
 
@@ -60,3 +60,11 @@ def test_published_version_is_reported(plan, monkeypatch):
 
     monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout: None)
     assert plan("push", "tag", "v0.1.0")["published"] == "true"
+
+
+def test_read_version_matches_pyproject(plan):
+    import isotile
+
+    module = importlib.util.module_from_spec(importlib.util.spec_from_file_location("rp", SCRIPT))  # type: ignore[arg-type]
+    module.__spec__.loader.exec_module(module)  # type: ignore[union-attr]
+    assert str(module.read_version()) == isotile.__version__
