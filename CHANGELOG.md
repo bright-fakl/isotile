@@ -7,6 +7,10 @@ All notable changes to isotile are documented here. The format follows
 
 ### Fixed
 
+- `docs/curves.md` gave 0.1 as the default `margin` of `fill_region`; the default is 0.0.
+- `with_frame` (and so `rotated`, `scaled` and `fill_region`) no longer checks the prototile again, because a frame does
+  not change validity. `fill_region(outline="straight")` of the nine presets with curves takes a median of 2.1 ms for
+  100 tiles instead of 7.0 ms; the tiles and the tiling are bit-identical.
 - The `wavy_triangle` preset has the curve amplitude 0.15 again (0.12 before), as in the carto-flow preset of the same
   name; a test compares all 15 presets with `tests/data/carto_flow_presets.json`, which
   `scripts/make_carto_flow_presets_fixture.py` regenerates.
@@ -16,11 +20,19 @@ All notable changes to isotile are documented here. The format follows
 
 ### Added
 
+- `IsohedralTiling.with_parameters(parameters)`: a new tiling with the parameters replaced and the same checks as the
+  `parameters` setter; the tiling is unchanged.
+- `InvalidPrototileError(ValueError)` with the `PrototileReport` as `report`, raised by the constructor,
+  `with_parameters`, `with_edge_curves` and the `parameters` setter when the prototile or its outline is not valid.
+  Malformed arguments still raise a plain `ValueError`.
+- `repr(tiling)` is the constructor call as Python code that rebuilds an equal tiling.
+- `TileSet.to_geojson(properties=None, curved=True, n_points=None)`: the tiles as a GeoJSON `FeatureCollection` dict
+  (properties `cell`, `aspect`, `color`; rings counterclockwise); needs no shapely.
 - `cover(bounds, outline=None)` and `fill_region(..., outline=None)`: `"curved"` selects tiles by the overlap of their
   curved polygon with the region, so the region is covered completely at `margin=0` for tilings with edge curves;
   `"straight"` is the former test. The default `None` means `"curved"` if the tiling has an edge curve (any entry of
   `edge_curves`) and `"straight"` otherwise. Behavior change: a curved tiling now also returns the tiles that reach
-  into the region (or, at the default margin, the margin band) only through their curves, for example 126 instead of
+  into the region (or, with a positive margin, the margin band) only through their curves, for example 126 instead of
   112 tiles for `puzzle_piece` at `n_tiles=100`, `margin=0.1`, and the selection takes 0.5 to 1 s instead of 0.1 s for
   10,000 tiles. `outline="straight"` restores the former result.
 - `TileSet.neighbor_lists(kind="edge")`: the sorted neighbors of every tile from one adjacency matrix; `neighbors(i)`

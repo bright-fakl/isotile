@@ -41,6 +41,23 @@ class PrototileReport:
     message: str
 
 
+class InvalidPrototileError(ValueError):
+    """A prototile that is not valid, see [`check_prototile`][isotile.check_prototile].
+
+    Raised by the [`IsohedralTiling`][isotile.IsohedralTiling] constructor, `with_parameters`, `with_edge_curves` and
+    the `parameters` setter. It is a `ValueError`.
+
+    Attributes
+    ----------
+    report : PrototileReport
+        The report of the check; ``report.bad_edges`` are the edges at fault.
+    """
+
+    def __init__(self, message: str, report: PrototileReport) -> None:
+        super().__init__(message)
+        self.report = report
+
+
 def polygon_area(vertices: NDArray[np.float64]) -> float:
     """Signed area of the polygon (positive if counterclockwise)."""
     x, y = vertices[:, 0], vertices[:, 1]

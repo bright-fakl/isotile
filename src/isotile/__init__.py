@@ -8,7 +8,7 @@ from .adjacency import AdjacencyKind, geometric_adjacency, lattice_adjacency
 from .curves import EdgeInfo
 from .edges import EdgeShape, enforce_symmetry, interpolate, is_symmetric
 from .presets import edge_curve_preset, edge_curves_from_preset, list_edge_curve_presets, list_presets
-from .prototile import PrototileReport, check_prototile
+from .prototile import InvalidPrototileError, PrototileReport, check_prototile
 from .tiling import IsohedralTiling, TileSet
 from .types import TilingType, find_types, get_type, tiling_types
 
@@ -18,6 +18,7 @@ __all__ = [
     "AdjacencyKind",
     "EdgeInfo",
     "EdgeShape",
+    "InvalidPrototileError",
     "IsohedralTiling",
     "PrototileReport",
     "TileSet",

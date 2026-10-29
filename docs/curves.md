@@ -32,7 +32,8 @@ print(len(curved.prototile()), "points on the outline,", curved.area)
 The shape ids of IH28 are 0 for the first edge and 1 and 2 for the two pairs of edges after it. The curves are
 available as `edge_curves`, `edge_curve_modes` and, edge by edge, `edges`, a tuple of `EdgeInfo` with the index, shape
 id, shape, reversal and curve of each edge. `with_edge_curves(curves)` returns a copy with other curves, and
-`rotated`, `scaled` and `with_frame` keep the curves.
+`rotated`, `scaled` and `with_frame` keep the curves; `with_frame` and `fill_region` do not check the prototile again,
+because a frame does not change validity.
 
 An edge shape id of a straight (`I`) edge cannot have a curve; giving one raises `ValueError`, as does a curve that
 does not run from `(0, 0)` to `(1, 0)`.
@@ -142,9 +143,9 @@ covered completely. `"straight"` tests the straight polygon. The default `None` 
 edge curve, that is, `edge_curves` has at least one entry, and `"straight"` otherwise; a tiling without edge curves
 takes the straight test whatever `outline` is.
 
-The curved test returns the tiles that reach into the region only through their curves, also into the margin band at
-the default `margin` of 0.1, and takes longer, because the curved polygons of the tiles along the boundary are
-clipped. `outline="straight"` restores the straight test for a curved tiling.
+The curved test returns the tiles that reach into the region only through their curves (the region includes the margin
+band when `margin` is positive; the default is `margin=0.0`), and takes longer, because the curved polygons of the
+tiles along the boundary are clipped. `outline="straight"` restores the straight test for a curved tiling.
 
 ```python
 tiles = curved.fill_region((0, 0, 8, 6), n_tiles=30)  # outline="curved" for a tiling with edge curves
@@ -176,8 +177,9 @@ clearance. Validity does not depend on the frame; it is judged in native coordin
 
 `check_prototile(tiling_type, parameters, edge_curves=..., edge_curve_modes=...)` returns a `PrototileReport` without
 building a tiling: `valid`, the sorted `bad_edges` (edges whose curves cross, touch, come closer than the clearance or fold back) and a `message`. The
-constructor and the `parameters` setter apply the same test and raise `ValueError` when it fails; the setter keeps the
-previous state. Curves can be valid in the spline mode and invalid in the linear mode, and the other way round.
+constructor, `with_parameters`, `with_edge_curves` and the `parameters` setter apply the same test and raise
+`InvalidPrototileError`, a subclass of `ValueError` whose `report` attribute is the `PrototileReport`, when it fails; the
+setter keeps the previous state. Curves can be valid in the spline mode and invalid in the linear mode, and the other way round.
 
 ```python
 bow = {0: [(0, 0), (0.8, 0.5), (0.2, 0.5), (1, 0)]}
@@ -189,6 +191,7 @@ try:
     IsohedralTiling(41, edge_curves=bow, edge_curve_modes={0: "linear"})
 except ValueError as error:
     print("rejected:", error)
+    print(error.report.bad_edges)
 ```
 
 <figure markdown="span">
