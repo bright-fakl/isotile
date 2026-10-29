@@ -28,6 +28,7 @@ All notable changes to isotile are documented here. The format follows
 - `repr(tiling)` is the constructor call as Python code that rebuilds an equal tiling.
 - `TileSet.to_geojson(properties=None, curved=True, n_points=None)`: the tiles as a GeoJSON `FeatureCollection` dict
   (properties `cell`, `aspect`, `color`; rings counterclockwise); needs no shapely.
+- `TileSet.save_geojson(path, properties=None, curved=True, n_points=None)` writes `to_geojson` as a UTF-8 JSON file.
 - `cover(bounds, outline=None)` and `fill_region(..., outline=None)`: `"curved"` selects tiles by the overlap of their
   curved polygon with the region, so the region is covered completely at `margin=0` for tilings with edge curves;
   `"straight"` is the former test. The default `None` means `"curved"` if the tiling has an edge curve (any entry of

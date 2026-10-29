@@ -232,3 +232,13 @@ def test_to_geojson_properties_and_options():
 def test_to_geojson_of_no_tiles():
     tiles = IsohedralTiling.square().fill_region((0, 0, 2, 2), n_tiles=4)
     assert tiles.select(np.zeros(len(tiles), bool)).to_geojson() == {"type": "FeatureCollection", "features": []}
+
+
+def test_save_geojson_round_trips(tmp_path):
+    tiles = IsohedralTiling.from_preset("puzzle_piece").fill_region((0, 0, 4, 3), n_tiles=12, outline="straight")
+    extra = {"index": np.arange(len(tiles))}
+    for path in (tmp_path / "a.geojson", str(tmp_path / "b.geojson")):
+        tiles.save_geojson(path, extra, curved=False)
+        with open(path, encoding="utf-8") as handle:
+            assert json.load(handle) == tiles.to_geojson(extra, curved=False)
+    assert (tmp_path / "a.geojson").read_text(encoding="utf-8").endswith("\n")

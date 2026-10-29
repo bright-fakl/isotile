@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -962,6 +963,21 @@ class TileSet:
                 "geometry": {"type": "Polygon", "coordinates": [ring]},
             })
         return {"type": "FeatureCollection", "features": features}
+
+    def save_geojson(
+        self,
+        path: str | Path,
+        properties: Mapping[str, ArrayLike] | None = None,
+        *,
+        curved: bool = True,
+        n_points: int | None = None,
+    ) -> None:
+        """Write [`to_geojson`][isotile.TileSet.to_geojson] as a JSON file (UTF-8, ending with a newline).
+
+        An existing file is overwritten. The arguments are those of `to_geojson`.
+        """
+        data = self.to_geojson(properties, curved=curved, n_points=n_points)
+        Path(path).write_text(json.dumps(data) + "\n", encoding="utf-8")
 
     def colors(self) -> IntArray:
         """(n,) color index of each tile from the type's coloring table."""

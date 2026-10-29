@@ -101,6 +101,8 @@ print(collection["features"][0]["properties"])  # {'cell': [...], 'aspect': 0, '
 text = json.dumps(collection)
 ```
 
+`tiles.save_geojson(path)` writes the same dict to a UTF-8 JSON file and takes the same arguments after `path`.
+
 `tiles.select(mask)` returns the subset of tiles for a boolean mask or an index array.
 
 ```python
