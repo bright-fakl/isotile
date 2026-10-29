@@ -3,7 +3,7 @@
 All notable changes to isotile are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-29
 
 First release. isotile keeps the tiling type numbers (IH1 to IH93) and the parameter format of
 [tactile](https://github.com/isohedral/tactile); its type data is derived from tactile (see `NOTICE`).
