@@ -96,7 +96,7 @@ uv run python scripts/check_links.py site README.md CHANGELOG.md --ignore-file s
 
 `scripts/check_links.py` fetches every http and https link in the HTML of the built site and in the given Markdown files.
 A link passes with a 2xx status after redirects and with 429 (rate limited); other failures are retried three times
-before the link counts as broken. `scripts/link_ignore.txt` lists regular expressions of URLs to skip: pages that exist
-only after the deploy, and the PyPI project and badges until the first release. Internal links are checked by the
+before the link counts as broken. `scripts/link_ignore.txt` lists regular expressions of URLs to skip (now only the preconnect
+hint of the theme, which is not a page). Internal links are checked by the
 strict `mkdocs build`. The workflow `check-links.yml` runs the full check every Monday and on demand; it is the gate. On
 a pull request it checks only the changed Markdown files, skips the documentation site and does not fail the pull request.

@@ -39,7 +39,7 @@ Authentication is trusted publishing (OIDC). The repository holds no PyPI token.
 
 ## One-time setup
 
-Done once, before the first release.
+Done once, before the first release (done for 0.1.0).
 
 1. **PyPI.** Log in at <https://pypi.org>, open Account settings, Publishing, and add a *pending publisher* with the
    values below. The project `isotile` is created by the first upload.
@@ -67,7 +67,7 @@ The environment names are part of the trusted publisher on the index; a mismatch
 
 `pyproject.toml` is the only place of the version; `isotile.__version__` reads the installed metadata, and the
 documentation takes the changelog from `CHANGELOG.md`. Between releases `main` carries a development version
-(`0.1.0.dev0`), which the publish workflow never sends to PyPI. The release changes it in one pull request.
+(for example `0.1.1.dev0`), which the publish workflow never sends to PyPI. The release changes it in one pull request.
 
 ## Release checklist
 

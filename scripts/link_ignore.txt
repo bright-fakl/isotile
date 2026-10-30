@@ -1,9 +1,2 @@
 # Regular expressions of URLs that scripts/check_links.py skips (searched in the URL).
-# Remove the lines marked "first release" once isotile 0.1.0 is on PyPI.
-^https://pypi\.org/project/isotile/      # first release
-^https://test\.pypi\.org/project/isotile/ # first release
-^https://img\.shields\.io/pypi/           # first release
-^https://github\.com/bright-fakl/isotile/(releases|compare)/ # tags and releases do not exist before the first release
 ^https://fonts\.gstatic\.com/?$ # preconnect hint of the theme, not a page
-# Pages that exist only after the docs deploy that follows the PR that adds them; remove after the first deploy.
-^https://bright-fakl\.github\.io/isotile/(catalog|migration|benchmark)/
